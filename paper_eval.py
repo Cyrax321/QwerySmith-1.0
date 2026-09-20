@@ -1310,6 +1310,54 @@ def display_in_colab(paper_dir: Path):
         display(Markdown("## 📋 Comprehensive Research Paper Report"))
         display(Markdown(report_path.read_text(encoding="utf-8")))
 
+def render_in_colab(run_dir: str = "/content/drive/MyDrive/qwerysmith-1.1", paper_dir: str = "paper"):
+    """One-click runner that computes all matrices and renders all 13 figures inline in Colab."""
+    try:
+        from IPython.display import Image, display, Markdown, HTML
+    except ImportError:
+        print("Note: IPython not found. Run in a Jupyter or Colab environment.")
+        return
+
+    r_dir = Path(run_dir).resolve()
+    if not r_dir.exists():
+        for alt in ["runs/qwerysmith-1.1", "/content/drive/MyDrive/qwerysmith_runs", "."]:
+            if (Path(alt) / "predictions.csv").exists() or (Path(alt) / "results.json").exists():
+                r_dir = Path(alt).resolve()
+                break
+
+    p_dir = Path(paper_dir).resolve()
+    p_dir.mkdir(parents=True, exist_ok=True)
+
+    items_by_set, results_json, train_log = load_data(r_dir)
+    if not items_by_set and not results_json:
+        print(f"❌ Error: No prediction records found in {r_dir}.")
+        return
+
+    analysis = analyze_dataset(items_by_set, results_json)
+    generate_figures(analysis, train_log, p_dir)
+    generate_latex_tables(analysis, p_dir)
+    generate_report(analysis, p_dir)
+
+    print("\n" + "=" * 70)
+    print("🎨 DISPLAYING ALL 13 PUBLICATION FIGURES & MATRICES")
+    print("=" * 70)
+
+    fig_dir = p_dir / "figures"
+    for fpath in sorted(list(fig_dir.glob("*.png"))):
+        display(Markdown(f"### 📊 {fpath.stem.replace('_', ' ').title()}"))
+        display(Image(filename=str(fpath), width=800))
+
+    report_path = p_dir / "RESEARCH_PAPER_REPORT.md"
+    if report_path.exists():
+        display(Markdown("---"))
+        display(Markdown(report_path.read_text(encoding="utf-8")))
+
+    html_paper = p_dir / "paper.html"
+    if html_paper.exists():
+        display(Markdown("---"))
+        display(Markdown("## 📄 Rendered Academic Research Paper (Interactive Preview)"))
+        display(HTML(filename=str(html_paper)))
+
 
 # --------------------------------------------------------------------------
 # CLI Entry Point
