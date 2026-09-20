@@ -213,3 +213,63 @@ def _executable_only(items: list[dict], want: int, max_schema_chars: int = 3000)
         conn.close()
         if ok and rows:
             keep.append(it)
+        if len(keep) >= want:
+            break
+    return keep
+
+
+def _parse_mix(spec: str) -> list[tuple[str, int]]:
+    out = []
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        name, _, n = part.partition(":")
+        if name not in SOURCES:
+            raise SystemExit(f"Unknown source '{name}'. Known: {list(SOURCES)}")
+        out.append((name, int(n or 0)))
+    return out
+
+
+def build_sets(args):
+    """Returns (train_items, eval_sets).
+
+    eval_sets always contains in_dist; gretel_test and the --heldout source are
+    added when available. Any training item whose question appears in ANY eval
+    set is dropped, so a mix can never leak into an eval.
+    """
+    seed = 42
+
+    # ---- eval sets are carved out FIRST, so training can never claim them ----
+    mix_dict = dict(_parse_mix(args.mix))
+    sql_needed = args.n_test + mix_dict.get("sql_create_context", 0) * 2
+    in_pool = _load_source("sql_create_context", sql_needed, seed)
+    in_test = in_pool[: args.n_test]
+    in_test_qs = {r["question"] for r in in_test}
+
+    sets = {"in_dist": in_test}
+
+    if args.n_external:
+        near = _load_source("gretel_test", args.n_external * 4, seed)
+        near = _executable_only(near, args.n_external)
+        if near:
+            sets["gretel_test"] = near
+
+    if args.heldout:
+        mix_names = {name for name, _ in _parse_mix(args.mix)}
+        # large_schema's size filter rejects most rows (median schema is
+        # ~28K chars of prompt), so it needs a much bigger scan window than
+        # the default 4x to actually reach --n-heldout items.
+        oversample_by_source = {"large_schema": 20}
+        for name in [n.strip() for n in args.heldout.split(",") if n.strip()]:
+            if name not in SOURCES:
+                raise SystemExit(f"Unknown --heldout source '{name}'. Known: {list(SOURCES)}")
+            if name in mix_names:
+                print(f"WARNING: '{name}' is in both --mix and --heldout -- skipping it "
+                      f"as held-out, since it can no longer measure generalization.")
+                continue
+            osf = oversample_by_source.get(name, 4)
+            ho = _load_source(name, args.n_heldout * osf, seed, oversample=1)
+            ho = _executable_only(ho, args.n_heldout)
+            if ho:
+                sets[f"heldout_{name}"] = ho
