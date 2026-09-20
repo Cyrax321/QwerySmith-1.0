@@ -478,3 +478,88 @@ def stage_export(args, model, tok) -> None:
         print("GGUF saved (q4_k_m).")
     if args.push:
         if not token:
+            print("Set the HF_TOKEN environment variable (write token) to push.")
+        else:
+            model.push_to_hub(args.push, token=token)
+            tok.push_to_hub(args.push, token=token)
+            print(f"Pushed adapter to https://huggingface.co/{args.push}")
+
+
+# --------------------------------------------------------------------------
+# 4. Report
+# --------------------------------------------------------------------------
+def stage_report(args, sets) -> None:
+    out = Path(args.out)
+    pdir = out / "preds"
+    results, per_item, preds_by = {}, {}, {}
+    for sname, items in sets.items():
+        for sysname in SYSTEMS:
+            f = pdir / f"{sysname}__{sname}.json"
+            if not f.exists():
+                continue
+            preds = json.loads(f.read_text())["pred"]
+            m, per = score(items, preds)
+            results[(sname, sysname)] = m
+            per_item[(sname, sysname)] = per
+            preds_by[(sname, sysname)] = preds
+    if not results:
+        print("No predictions found. Run the baseline and eval stages first.")
+        return
+
+    def pct(x):
+        return f"{100 * x:.1f}%"
+
+    lines = [
+        "| set | system | valid SQL | exact match | execution acc (95% CI) | scored |",
+        "|---|---|---|---|---|---|",
+    ]
+    for (sname, sysname), m in results.items():
+        lo, hi = m["exec_ci"]
+        lines.append(
+            f"| {sname} | {sysname} | {pct(m['valid'])} | {pct(m['exact_match'])} | "
+            f"{pct(m['exec_acc'])} ({pct(lo)} to {pct(hi)}) | {m['exec_scored']}/{m['n']} |"
+        )
+    table = "\n".join(lines)
+
+    extra = []
+    for sname in sets:
+        a, b = per_item.get((sname, "finetuned")), per_item.get((sname, "base_fewshot"))
+        if a and b:
+            wins = sum(1 for x, y in zip(a, b) if x["ex"] is True and y["ex"] is False)
+            losses = sum(1 for x, y in zip(a, b) if x["ex"] is False and y["ex"] is True)
+            extra.append(
+                f"- {sname}: fine-tuned vs 3-shot base, execution-correct only on one side: "
+                f"{wins} wins, {losses} losses"
+            )
+
+    notes = """
+How to read this
+- valid SQL: the query runs in SQLite without error.
+- exact match: normalized string equality with the gold query. Punishes correct queries written differently.
+- execution acc: predicted and gold queries return the same rows. Only items whose gold query returns
+  at least one row are scored (the "scored" column). in_dist has no real data, so tables are filled with
+  random rows seeded from the gold query's literals; that can occasionally make two different queries
+  look equal. gretel_test/heldout_* use each example's own INSERT rows where present (see below).
+- If the confidence intervals overlap, do not claim one system beats the other.
+- SQLite is not Postgres/MySQL: a few correct queries in other dialects will be marked wrong.
+- Base-model output is parsed leniently (code fences and chatter stripped) so it is not punished for formatting.
+- v1.1: once a source is part of --mix, its "test" split (e.g. gretel_test) is no longer a
+  generalization check -- it is near-distribution. Only the heldout_<name> sets (sources named in
+  --heldout, which must never also appear in --mix) answer "does this help on SQL styles the
+  model never trained on". Each named source gets its own heldout_<name> set -- compare them
+  individually rather than averaging, since they test different failure modes (SQaLe: real-world
+  schema noise; large_schema: schema-linking pressure, though only its small-schema tail survives
+  the size filter here).
+"""
+    ext_note = ""
+    for extset in list(sets):
+        if extset in ("gretel_test",) or extset.startswith("heldout_"):
+            n_ext = max(1, len(sets[extset]))
+            frac = sum("insert into" in it["context"].lower() for it in sets[extset]) / n_ext
+            ext_note += f"- {extset}: {frac:.0%} of items ship with their own INSERT rows; the rest use random filler rows.\n"
+    md = "# Results\n\n" + table + "\n\n" + "\n".join(extra) + "\n" + notes + ext_note
+    (out / "results.md").write_text(md)
+    (out / "results.json").write_text(
+        json.dumps({f"{s}/{n}": m for (s, n), m in results.items()}, indent=1, default=list)
+    )
+    print("\n" + table + "\n" + "\n".join(extra))
