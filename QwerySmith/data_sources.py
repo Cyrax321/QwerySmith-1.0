@@ -184,3 +184,32 @@ def _load_source(name: str, limit: int, seed: int, oversample: int = 3) -> list[
         })
         if limit and len(items) >= limit:
             break
+    print(f"  -> {len(items)} items from {name}")
+    return items
+
+
+
+def _executable_only(items: list[dict], want: int, max_schema_chars: int = 3000) -> list[dict]:
+    """Keep only items whose gold query runs AND returns at least one row,
+    AND whose schema fits comfortably inside --max-len tokens.
+
+    max_schema_chars matters most for SQaLe: its schemas run up to ~90 tables
+    / 400+ columns (multiple thousand characters of CREATE TABLE text), which
+    would get silently truncated at --max-len 2048 tokens before the model
+    ever sees the question. ~3000 chars of schema text leaves room for the
+    question + generation inside a 2048-token budget; raise this only if you
+    also raise --max-len."""
+    try:
+        from Qwerysmith_V11 import make_db, run_query
+    except ImportError:
+        from QwerySmith import make_db, run_query
+
+    keep = []
+    for it in items:
+        if len(it["schema"]) > max_schema_chars:
+            continue
+        conn = make_db(it["context"], it["gold"], seed=0)
+        ok, rows = run_query(conn, it["gold"])
+        conn.close()
+        if ok and rows:
+            keep.append(it)
