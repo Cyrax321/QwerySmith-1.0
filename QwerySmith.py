@@ -11,8 +11,8 @@ Stages (run one with --stage, or everything with --stage all):
 
 Colab usage (T4 is enough):
   !pip install -q unsloth trl datasets
-  !python text2sql_pipeline.py --smoke            # 5-10 min sanity check first
-  !python text2sql_pipeline.py --n-train 10000    # real run
+  !python QwerySmith.py --smoke            # 5-10 min sanity check first
+  !python QwerySmith.py --n-train 10000    # real run
 
 Everything is cached in --out, so if Colab dies you can re-run the same
 command and finished steps are skipped. Point --out at Google Drive
@@ -22,7 +22,7 @@ results survive the session.
 Two evaluation sets:
   in_dist   200 held-out rows from b-mc2/sql-create-context (same style as training)
   external  rows from gretelai/synthetic_text_to_sql test split (different data,
-            has real INSERT rows, so queries are executed for real)
+            uses its own INSERT rows when an example has them)
 
 Library APIs change often. If a call errors, check the Unsloth / TRL docs first.
 """
@@ -176,6 +176,8 @@ def make_db(context: str, gold: str, seed: int) -> sqlite3.Connection:
 
 
 def run_query(conn: sqlite3.Connection, sql: str, timeout: float = 3.0):
+    if not re.match(r"(?is)^\s*(select|with)\b", sql or ""):
+        return False, None  # empty output, chatter, or non-SELECT statements count as invalid
     start = time.time()
     conn.set_progress_handler(lambda: 1 if time.time() - start > timeout else 0, 10000)
     try:
@@ -312,7 +314,8 @@ def load_external(args):
             items.append(it)
         if len(items) >= args.n_external:
             break
-    print(f"external items usable: {len(items)}")
+    with_rows = sum("insert into" in it["context"].lower() for it in items)
+    print(f"external items usable: {len(items)} ({with_rows} ship with their own INSERT rows)")
     return items
 
 
@@ -445,32 +448,44 @@ def stage_train(args, train_items):
     print("Example training text:\n" + "-" * 40 + "\n" + ds[0]["text"] + "\n" + "-" * 40)
 
     use_bf16 = torch.cuda.is_bf16_supported()
-    trainer = SFTTrainer(
-        model=model,
-        tokenizer=tok,
-        train_dataset=ds,
-        args=SFTConfig(
-            dataset_text_field="text",
-            max_seq_length=args.max_len,
-            per_device_train_batch_size=args.batch_size,
-            gradient_accumulation_steps=args.grad_accum,
-            num_train_epochs=args.epochs,
-            max_steps=args.max_steps,
-            learning_rate=args.lr,
-            warmup_ratio=0.05,
-            lr_scheduler_type="cosine",
-            optim="adamw_8bit",
-            weight_decay=0.01,
-            fp16=not use_bf16,
-            bf16=use_bf16,
-            logging_steps=10,
-            save_strategy="no",
-            output_dir=str(out / "trainer"),
-            report_to="none",
-            seed=SEED,
-            dataset_num_proc=2,
-        ),
+    cfg = dict(
+        dataset_text_field="text",
+        per_device_train_batch_size=args.batch_size,
+        gradient_accumulation_steps=args.grad_accum,
+        num_train_epochs=args.epochs,
+        max_steps=args.max_steps,
+        learning_rate=args.lr,
+        warmup_steps=10,
+        lr_scheduler_type="cosine",
+        optim="adamw_8bit",
+        weight_decay=0.01,
+        fp16=not use_bf16,
+        bf16=use_bf16,
+        logging_steps=10,
+        save_strategy="no",
+        output_dir=str(out / "trainer"),
+        report_to="none",
+        seed=SEED,
+        dataset_num_proc=2,
     )
+    sft_cfg = None
+    for len_key in ("max_seq_length", "max_length"):  # TRL renamed this argument
+        try:
+            sft_cfg = SFTConfig(**cfg, **{len_key: args.max_len})
+            break
+        except TypeError:
+            continue
+    if sft_cfg is None:
+        raise RuntimeError("Could not build SFTConfig. Check your TRL version.")
+    trainer = None
+    for tok_key in ("processing_class", "tokenizer"):  # TRL renamed this too
+        try:
+            trainer = SFTTrainer(model=model, train_dataset=ds, args=sft_cfg, **{tok_key: tok})
+            break
+        except TypeError:
+            continue
+    if trainer is None:
+        raise RuntimeError("Could not build SFTTrainer. Check your TRL version.")
     sample = ds[0]["text"]
     if INSTRUCTION_PART in sample and RESPONSE_PART in sample:
         trainer = train_on_responses_only(
@@ -562,12 +577,17 @@ How to read this
 - execution acc: predicted and gold queries return the same rows. Only items whose gold query returns
   at least one row are scored (the "scored" column). in_dist has no real data, so tables are filled with
   random rows seeded from the gold query's literals; that can occasionally make two different queries
-  look equal. external uses the real INSERT rows shipped with each example.
+  look equal. external uses each example's own INSERT rows where present (see below).
 - If the confidence intervals overlap, do not claim one system beats the other.
 - SQLite is not Postgres/MySQL: a few correct queries in other dialects will be marked wrong.
 - Base-model output is parsed leniently (code fences and chatter stripped) so it is not punished for formatting.
 """
-    md = "# Results\n\n" + table + "\n\n" + "\n".join(extra) + "\n" + notes
+    ext_note = ""
+    if "external" in sets:
+        n_ext = max(1, len(sets["external"]))
+        frac = sum("insert into" in it["context"].lower() for it in sets["external"]) / n_ext
+        ext_note = f"- external: {frac:.0%} of items ship with their own INSERT rows; the rest use random filler rows.\n"
+    md = "# Results\n\n" + table + "\n\n" + "\n".join(extra) + "\n" + notes + ext_note
     (out / "results.md").write_text(md)
     (out / "results.json").write_text(
         json.dumps({f"{s}/{n}": m for (s, n), m in results.items()}, indent=1, default=list)
