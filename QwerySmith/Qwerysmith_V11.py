@@ -701,3 +701,23 @@ def main() -> None:
         model = tok = None
 
     if stage in ("eval", "all"):
+        from unsloth import FastLanguageModel
+
+        if model is None:
+            model, tok = load_model(args, path=str(out / "adapter"))
+        FastLanguageModel.for_inference(model)
+        run_system("finetuned", model, tok, sets, (), args)
+
+    if stage in ("report", "all"):
+        stage_report(args, sets)
+
+    if stage in ("export", "all") and (args.merge or args.gguf or args.push):
+        if model is None:
+            model, tok = load_model(args, path=str(out / "adapter"))
+        stage_export(args, model, tok)
+
+    print("\nDone. Outputs in:", out.resolve())
+
+
+if __name__ == "__main__":
+    main()
