@@ -103,8 +103,8 @@ def split_statements(sql: str) -> list[str]:
 
 
 def schema_only(context: str) -> str:
-    """Keep only CREATE TABLE statements (the model never sees INSERT rows)."""
-    keep = [s + ";" for s in split_statements(context) if re.match(r"(?is)^create\s+table", s)]
+    """Keep only CREATE TABLE / CREATE VIEW statements (the model never sees INSERT rows)."""
+    keep = [s + ";" for s in split_statements(context) if re.match(r"(?is)^create\s+(table|view)\b", s)]
     return "\n".join(keep) if keep else context.strip()
 
 
