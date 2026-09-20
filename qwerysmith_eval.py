@@ -1340,3 +1340,245 @@ def risk_coverage(y_true: Sequence[int], conf: Sequence[float], grid: int = 50) 
     }
 
 # --------------------------------------------------------------------------
+# 5. Finding the finished run on disk
+# --------------------------------------------------------------------------
+def parse_manifest(out_dir: Path) -> dict:
+    """QwerySmith writes manifest.json with an 'artifacts' list of hashes."""
+    data = json_load(out_dir / "manifest.json", {}) or {}
+    out = {}
+    for a in data.get("artifacts", []) if isinstance(data, dict) else []:
+        if isinstance(a, dict) and a.get("name"):
+            out[a["name"]] = a
+    return out
+
+
+def _looks_like_run(p: Path) -> bool:
+    return any((p / f).exists() for f in ("config.json", "train_log.json", "preds", "adapter", "manifest.json"))
+
+
+def _match_pred_name(stem: str):
+    """'finetuned__in_dist' / 'preds_finetuned_external' / 'finetuned' -> (system, set)"""
+    low = stem.lower()
+    for system in SYSTEMS:
+        if system not in low:
+            continue
+        rest = low.replace(system, " ").strip(" _-")
+        for set_name in SET_NAMES:
+            if set_name in rest:
+                return system, set_name
+        return system, "in_dist"
+    return None
+
+
+def discover_runs(args) -> list:
+    """Directories that look like a QwerySmith run, best candidate first."""
+    found = []
+
+    def add(p: Path) -> None:
+        p = p.resolve()
+        if _looks_like_run(p) and p not in found:
+            found.append(p)
+
+    if getattr(args, "out", None) and not getattr(args, "all_runs", False):
+        add(Path(args.out))
+    for raw in list(getattr(args, "search", []) or []):
+        root = Path(raw)
+        if _looks_like_run(root):
+            add(root)
+        for p in sorted(root.glob("*")):
+            if p.is_dir() and _looks_like_run(p):
+                add(p)
+    if not found or getattr(args, "all_runs", False):
+        cwd = Path.cwd()
+        for base in (cwd, cwd / "runs", Path(__file__).resolve().parent, Path(__file__).resolve().parent / "runs"):
+            add(base)
+            if base.exists():
+                for p in sorted(base.glob("*")):
+                    if p.is_dir() and _looks_like_run(p):
+                        add(p)
+    if not found:
+        sys.exit(
+            "No QwerySmith run found.\n"
+            "Point the script at it explicitly, e.g.\n"
+            "  python qwerysmith_eval.py --stage figures --out /content/drive/MyDrive/QwerySmith/runs/qwerysmith-1.0\n"
+            "or, to re-generate the predictions first,\n"
+            "  python QwerySmith.py --stage eval --out runs/qwerysmith-1.0"
+        )
+    if len(found) > 1 and not getattr(args, "all_runs", False):
+        log("Several runs found:")
+        for i, p in enumerate(found):
+            log(f"  [{i}] {p}")
+        log(f"Using the first one: {found[0]}  (--out/--all-runs to choose)")
+    return found
+
+
+def load_run(out_dir: Path, ns) -> RunPaths:
+    """Read config.json, train_log.json and every cached prediction file."""
+    out_dir = Path(out_dir).resolve()
+    cfg = json_load(out_dir / "config.json", {}) or {}
+    for key in ("n_train", "n_test", "n_external", "model", "max_len", "seed"):
+        if key in cfg and cfg.get(key) is not None:
+            continue
+        if hasattr(ns, key) and getattr(ns, key) is not None:
+            cfg[key] = getattr(ns, key)
+    train_log = json_load(out_dir / "train_log.json", None)
+    if not isinstance(train_log, list):
+        train_log = cfg.get("train_log") if isinstance(cfg.get("train_log"), list) else []
+
+    preds: dict = {}
+    preds_dir = out_dir / "preds"
+    if preds_dir.exists():
+        for f in sorted(preds_dir.glob("*.json")):
+            payload = json_load(f, None)
+            if not isinstance(payload, dict) or "pred" not in payload:
+                continue
+            key = _match_pred_name(f.stem)
+            if key is None:
+                log(f"note: ignoring {f.name} (cannot tell which system/set it belongs to)")
+                continue
+            payload["_file"] = f.name
+            preds[key] = payload
+    adapter_dir = out_dir / "adapter"
+    if not adapter_dir.exists():
+        for alt in ("final_adapter", "lora_adapter", "model", "final_model"):
+            if (out_dir / alt).exists():
+                adapter_dir = out_dir / alt
+                break
+    return RunPaths(
+        out=out_dir,
+        eval_dir=out_dir / "eval",
+        preds_dir=preds_dir,
+        adapter_dir=adapter_dir,
+        config=cfg,
+        train_log=train_log,
+        preds=preds,
+        manifest=parse_manifest(out_dir),
+    )
+
+def score_item(
+    set_name: str,
+    system: str,
+    idx: int,
+    item: dict,
+    raw: str,
+    pred: str,
+    gold_refs: dict,
+    gold_flags: dict,
+    schema: dict,
+    conn: sqlite3.Connection,
+    gold_scorable: bool,
+    gold_rows,
+    complexity: str,
+) -> ItemScore:
+    """All per-item measurements for one (item, system) pair."""
+    valid, rows = run_query(conn, pred)
+    em = _norm(pred) == _norm(item["gold"])
+    ex = None
+    if gold_scorable:
+        ex = bool(valid and _canon(rows) == _canon(gold_rows))
+    outcome = (
+        "invalid" if not valid
+        else "executed_exact" if (em and ex)
+        else "executed_match" if ex
+        else "valid_wrong"
+    )
+    pred_flags = clause_flags(pred)
+    pred_refs = extract_refs(pred, schema)
+    link_p, link_r, link_f, _ = schema_link(gold_refs, pred_refs)
+    return ItemScore(
+        set_name=set_name,
+        system=system,
+        idx=idx,
+        question=item.get("question", ""),
+        gold=item["gold"],
+        pred=pred,
+        raw=raw,
+        valid=valid,
+        em=em,
+        gold_scorable=gold_scorable,
+        ex=ex,
+        outcome=outcome,
+        complexity=complexity,
+        gold_sig=signature_full(item["gold"]) if gold_scorable else "",
+        pred_sig=signature_full(pred),
+        gold_sig_full=signature_full(item["gold"]) if gold_scorable else "",
+        pred_sig_full=signature_full(pred),
+        gold_flags=gold_flags,
+        pred_flags=pred_flags,
+        gold_tables=gold_refs["tables"],
+        pred_tables=pred_refs["tables"],
+        gold_cols=gold_refs["columns"],
+        pred_cols=pred_refs["columns"],
+        cand_tables=sorted(schema["names"]),
+        cand_cols=sorted(schema["columns"]),
+        token_f1=token_f1(pred, item["gold"]),
+        token_f1_nolit=token_f1(pred, item["gold"], no_literals=True),
+        edit_sim=edit_similarity(pred, item["gold"]),
+        clause_jaccard=clause_jaccard(gold_flags, pred_flags) if gold_scorable else 0.0,
+        component_f1=component_f1(gold_flags, pred_flags) if gold_scorable else 0.0,
+        link_p=link_p,
+        link_r=link_r,
+        link_f=link_f,
+        error="" if valid else "invalid SQL",
+    )
+
+
+def score_all(ctx: Ctx, quiet: bool = False) -> None:
+    """Build the per-item score table for every system that has cached predictions."""
+    for set_name, items in ctx.items.items():
+        # ---- reference side: schema, gold references, gold result set, complexity
+        refs, flags, conns, complexities, scorable, gold_rows = [], [], [], [], [], []
+        for i, it in enumerate(items):
+            it.setdefault("schema", schema_only(it["context"]))
+            schema = parse_schema(it["schema"])
+            refs.append(extract_refs(it["gold"], schema))
+            flags.append(clause_flags(it["gold"]))
+            complexities.append(classify_complexity(it["gold"]))
+            conn = make_db(it["context"], it["gold"], seed=i)
+            ok, rows = run_query(conn, it["gold"])
+            conns.append(conn)
+            scorable.append(bool(ok and rows))
+            gold_rows.append(rows or [])
+        for system in SYSTEMS:
+            payload = ctx.paths.preds.get((system, set_name))
+            if not payload:
+                continue
+            preds = payload.get("pred") or []
+            raws = payload.get("raw") or preds
+            scores = []
+            for i in range(min(len(preds), len(items))):
+                scores.append(
+                    score_item(
+                        set_name, system, i, items[i],
+                        raws[i] if i < len(raws) else preds[i],
+                        clean_sql(preds[i]) or preds[i],
+                        refs[i], flags[i], parse_schema(items[i]["schema"]), conns[i],
+                        scorable[i], gold_rows[i], complexities[i],
+                    )
+                )
+            ctx.scores[(set_name, system)] = scores
+            if not quiet:
+                ex = [s for s in scores if s.ex is not None]
+                log(
+                    f"scored {system:14s} {set_name:9s} n={len(scores):4d}  "
+                    f"valid={pct(mean([s.valid for s in scores]), 1)}  "
+                    f"EM={pct(mean([s.em for s in scores]), 1)}  "
+                    f"EX={pct(mean([s.ex for s in ex]), 1)}"
+                )
+        for conn in conns:
+            conn.close()
+
+def outcome_counts(rows: Sequence[ItemScore]) -> dict:
+    """Kept for backwards compatibility with older notebooks: outcome histogram of a set."""
+    c = {k: 0 for k in OUTCOME_LABELS}
+    c["n_scorable"] = 0
+    for r in rows:
+        c[r.outcome] += 1
+        c["n_scorable"] += int(r.gold_scorable)
+    c["n"] = len(rows)
+    return c
+
+
+
+
+# --------------------------------------------------------------------------
