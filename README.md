@@ -77,6 +77,7 @@ In **QwerySmith 1.0**, the model was trained exclusively on 10,000 rows of `b-mc
 | Test Split | System | Valid SQL | Exact Match | Execution Acc (95% CI) | Scored Items |
 |:---|:---|:---:|:---:|:---:|:---:|
 | **`in_dist`** | Base (Zero-Shot)<br>Base (3-Shot)<br>**QwerySmith 1.1** | 98.5%<br>98.0%<br>**98.0%** | 6.0%<br>7.0%<br>**84.5%** | 67.2% (54.7% to 77.7%)<br>67.2% (54.7% to 77.7%)<br>**88.5% (78.2% to 94.3%)** | 61/200 |
+| **`gretel_test`** | Base (Zero-Shot)<br>Base (3-Shot)<br>**QwerySmith 1.1** | 92.7%<br>88.7%<br>**90.7%** | 26.0%<br>26.3%<br>**32.0%** | 52.3% (46.7% to 58.0%)<br>47.3% (41.7% to 53.0%)<br>**55.7% (50.0% to 61.2%)** | 298/300 |
 
 ### How v1.1 Solves It:
 1. **Multi-Source Data Mixing (`--mix`)**: Draws a configurable mix across sources (`sql_create_context:5000,gretel:5000`), forcing the model to learn 100+ realistic business schemas, correct column linking, and real numeric types.
