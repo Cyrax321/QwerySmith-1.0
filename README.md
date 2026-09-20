@@ -30,7 +30,22 @@
 
 QwerySmith is developed across two complementary releases:
 
-## 🔬 What's New in QwerySmith 1.1
+---
+
+## 🏛️ Model Family & Evolution: v1.0 vs v1.1
+
+QwerySmith is developed across two complementary releases:
+
+| Feature / Aspect | **QwerySmith 1.0** (Baseline) | **QwerySmith 1.1** (Latest Production) |
+|:---|:---|:---|
+| **Base Foundation** | `unsloth/Qwen3-4B` | `unsloth/Qwen3-4B` |
+| **Training Data** | 10,000 rows `b-mc2/sql-create-context` (single-source) | 10,000 rows balanced 50/50 mix (`sql-create-context` + `synthetic_text_to_sql`) |
+| **Splitting Strategy** | Post-hoc random sampling | **Leak-proof pre-split carving** (zero contamination) |
+| **LoRA Config** | $r=16, lpha=32$, dropout = 0, LR = `2e-4` | $r=16, lpha=32$, **dropout = 0.05**, **LR = `1e-4`** |
+| **In-Dist Execution Acc** | **88.5%** | **88.5%** (Exact Match: **84.5%**, 13-0 record) |
+| **Enterprise External Acc** | 34.6% *(Suffered single-source overfit)* | **55.7%** *(+21.1% over v1.0; 43 wins vs 18 losses vs base)* |
+| **Syntactic SQL Validity** | High on simple queries | **80.9%** on noisy schemas (`heldout_sqale`), **98.0%** in-dist |
+| **Held-Out Generalization** | Not evaluated | Evaluated against unobserved benchmarks (`sqale`, `large_schema`) |
 
 ### The Single-Source Overfitting Problem (v1.0 Diagnosis)
 In **QwerySmith 1.0**, the model was trained exclusively on 10,000 rows of `b-mc2/sql-create-context`. While in-distribution execution accuracy surged to **88.5%**, the model **regressed by -18%** on external test queries relative to the untouched base model:
