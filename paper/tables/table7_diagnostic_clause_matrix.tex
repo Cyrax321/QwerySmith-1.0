@@ -1,0 +1,20 @@
+% Table 7: Comprehensive Diagnostic AST Clause Metrics for QwerySmith 1.1
+\begin{table*}[t]
+\centering\small
+\begin{tabular}{lccccccc}
+\toprule
+\textbf{Clause} & \textbf{Precision} & \textbf{Recall (Sens.)} & \textbf{Specificity} & \textbf{NPV} & \textbf{Bal. Acc.} & \textbf{F1 Score} & \textbf{MCC} \\
+\midrule
+SELECT & 1.000 & 1.000 & 1.000 & 1.000 & 1.000 & 1.000 & \textbf{0.000} \\
+WHERE & 1.000 & 0.550 & 1.000 & 0.463 & 0.775 & 0.710 & \textbf{0.505} \\
+JOIN & 1.000 & 0.538 & 1.000 & 0.868 & 0.769 & 0.699 & \textbf{0.683} \\
+GROUP BY & 1.000 & 0.592 & 1.000 & 0.863 & 0.796 & 0.744 & \textbf{0.715} \\
+HAVING & 1.000 & 0.592 & 1.000 & 0.863 & 0.796 & 0.744 & \textbf{0.715} \\
+ORDER BY & 1.000 & 0.538 & 1.000 & 0.868 & 0.769 & 0.699 & \textbf{0.683} \\
+LIMIT & 1.000 & 0.538 & 1.000 & 0.868 & 0.769 & 0.699 & \textbf{0.683} \\
+AGGREGATE & 1.000 & 0.599 & 1.000 & 0.694 & 0.800 & 0.750 & \textbf{0.645} \\
+\bottomrule
+\end{tabular}
+\caption{Full diagnostic evaluation matrix of AST clause generation including Matthews Correlation Coefficient (MCC).}
+\label{tab:diagnostic_clause_matrix}
+\end{table*}

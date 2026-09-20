@@ -1,0 +1,16 @@
+% Table 5: Execution Accuracy Stratified by Complexity Tier
+\begin{table*}[t]
+\centering\small
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Benchmark Split} & \textbf{Simple (Proj/Filter)} & \textbf{Moderate (Agg/Sort)} & \textbf{Complex (Join)} & \textbf{Advanced (Nested/Set)} \\
+\midrule
+In Dist & 90.5\% & 87.9\% & 83.3\% & 95.7\% \\
+Gretel Test & 46.6\% & 60.7\% & 50.8\% & 60.3\% \\
+Heldout Sqale & 44.4\% & 33.3\% & 61.5\% & 40.0\% \\
+Heldout Large Schema & 13.5\% & 23.1\% & 17.1\% & 24.3\% \\
+\bottomrule
+\end{tabular}
+\caption{QwerySmith 1.1 execution accuracy stratified across query complexity tiers.}
+\label{tab:complexity_matrix}
+\end{table*}
