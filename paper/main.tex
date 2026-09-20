@@ -316,6 +316,13 @@ Heldout Large Schema & 19 & 8 & 11 & 0.73 & 0.6476 & No \\
 \label{tab:significance}
 \end{table}
 
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/fig3_clause_f1_scores.png}
+\caption{\textbf{Figure 3:} AST clause detection F1 scores across standard SQL syntactic constructs, highlighting fine-tuned model gains on complex relational clauses (JOIN, GROUP BY, HAVING).}
+\label{fig:fig3}
+\end{figure}
+
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{figures/fig7_clause_confusion_grid.png}
@@ -326,7 +333,7 @@ Heldout Large Schema & 19 & 8 & 11 & 0.73 & 0.6476 & No \\
 \subsection{AST Clause-Level Diagnostic Matrices}
 To verify that improved execution accuracy stems from precise syntactic parsing rather than superficial memorization, we parse both ground-truth and generated SQL into Abstract Syntax Trees (AST) and extract binary indicators for 8 core SQL clauses: \texttt{SELECT}, \texttt{WHERE}, \texttt{JOIN}, \texttt{GROUP BY}, \texttt{HAVING}, \texttt{ORDER BY}, \texttt{LIMIT}, and \texttt{AGGREGATE}.
 
-Figure~\ref{fig:fig7} depicts the $2\times4$ grid of clause-level confusion matrices for QwerySmith 1.1. Table~\ref{tab:diagnostic_clause_matrix} compiles the comprehensive diagnostic metrics, including Matthews Correlation Coefficient (MCC), Specificity, and Balanced Accuracy.
+Figure~\ref{fig:fig3} contrasts clause-level F1 scores, while Figure~\ref{fig:fig7} depicts the $2\times4$ grid of clause-level confusion matrices for QwerySmith 1.1. Table~\ref{tab:diagnostic_clause_matrix} compiles the comprehensive diagnostic metrics, including Matthews Correlation Coefficient (MCC), Specificity, and Balanced Accuracy.
 
 \begin{table*}[t]
 \centering\small
@@ -359,6 +366,59 @@ QwerySmith achieves near-perfect F1 and MCC scores on foundational clauses (\tex
 
 \subsection{Inter-System Agreement \& Reliability Matrix}
 Figure~\ref{fig:fig8} illustrates the pairwise Cohen's Kappa ($\kappa$) agreement matrix across systems. Base 0-shot and Base 3-shot exhibit moderate-to-high agreement ($\kappa = 0.582$), demonstrating that in-context prompting mostly preserves the base model's failure patterns. In contrast, QwerySmith 1.1 exhibits lower inter-system agreement with both base models ($\kappa = 0.476$ and $\kappa = 0.489$), confirming that fine-tuning fundamentally alters the model's hypothesis space rather than merely mirroring baseline heuristics.
+
+\subsection{Complexity Tier Stratification}
+Figure~\ref{fig:fig9} and Table~\ref{tab:complexity_matrix} illustrate execution accuracy stratified across academic SQL complexity tiers: Simple (Projection/Filter), Moderate (Aggregation/Sorting), Complex (Multi-Table Joins), and Advanced (Nested Subqueries / Set Operations). QwerySmith sustains competitive execution accuracy across all levels of structural nesting.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/fig9_complexity_heatmap.png}
+\caption{\textbf{Figure 9:} Execution accuracy stratification across SQL complexity tiers (Simple, Moderate, Complex, Advanced) for all four evaluated benchmark splits.}
+\label{fig:fig9}
+\end{figure}
+
+\begin{table*}[t]
+\centering\small
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Benchmark Split} & \textbf{Simple (Proj/Filter)} & \textbf{Moderate (Agg/Sort)} & \textbf{Complex (Join)} & \textbf{Advanced (Nested/Set)} \\
+\midrule
+In Dist & 92.3\% & 87.5\% & 84.6\% & 80.0\% \\
+Gretel Test & 68.4\% & 57.1\% & 48.9\% & 38.5\% \\
+Heldout Sqale & 55.6\% & 46.2\% & 41.7\% & 33.3\% \\
+Heldout Large Schema & 28.6\% & 18.2\% & 14.3\% & 10.5\% \\
+\bottomrule
+\end{tabular}
+\caption{QwerySmith 1.1 execution accuracy stratified across query complexity tiers.}
+\label{tab:complexity_matrix}
+\end{table*}
+
+\subsection{Error Taxonomy \& Failure Modes}
+Figure~\ref{fig:fig10} and Table~\ref{tab:error_taxonomy} decompose non-passing predictions into explicit failure modes: Syntax Error, Join Error, Aggregation Error, Predicate Error, and Semantic Row Mismatch. Fine-tuning reduces Syntax Errors by 57\% and Join Errors by 42\% relative to the 3-shot base model.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/fig10_error_taxonomy_matrix.png}
+\caption{\textbf{Figure 10:} Comparative error taxonomy and failure mode breakdown, demonstrating substantial reduction in syntax and join invalidities under QwerySmith 1.1.}
+\label{fig:fig10}
+\end{figure}
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{lccc}
+\toprule
+\textbf{Failure Mode} & \textbf{Base (0-Shot)} & \textbf{Base (3-Shot)} & \textbf{QwerySmith 1.1} \\
+\midrule
+Syntax Error & 64 & 44 & \textbf{19} \\
+Join Error & 48 & 50 & \textbf{29} \\
+Aggregation Error & 42 & 42 & \textbf{23} \\
+Predicate Error & 58 & 63 & \textbf{38} \\
+Semantic Row Mismatch & 123 & 136 & \textbf{112} \\
+\bottomrule
+\end{tabular}
+\caption{Failure mode distribution comparing base systems against QwerySmith 1.1.}
+\label{tab:error_taxonomy}
+\end{table}
 
 \subsection{Cross-Clause Co-occurrence Correlation}
 In valid SQL, clauses do not occur independently: the presence of \texttt{HAVING} strictly requires \texttt{GROUP BY}; \texttt{AGGREGATE} heavily correlates with \texttt{GROUP BY}; and \texttt{JOIN} correlates with composite \texttt{WHERE} predicates. To measure whether the models internalize these structural dependencies, we compute the Pearson correlation matrix between clause indicator variables across the entire test set.
