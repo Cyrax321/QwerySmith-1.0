@@ -45,13 +45,19 @@ paper/
 
 ## 🚀 Compiling the Paper
 
-### Option 1: Overleaf (Recommended)
-1. Zip the `paper/` directory:
+### Option 1: Overleaf (100% Plug-and-Play)
+1. In Google Colab or your terminal, create the Overleaf zip package (where `main.tex` and `figures/` are properly rooted):
    ```bash
-   zip -r qwerysmith_paper.zip paper/
+   cd paper && zip -r ../qwerysmith_overleaf.zip main.tex references.bib figures/ tables/ && cd ..
    ```
-2. Go to [Overleaf](https://www.overleaf.com) $\rightarrow$ New Project $\rightarrow$ Upload Project.
-3. Select `qwerysmith_paper.zip` and click **Recompile**.
+2. Download the zip:
+   ```python
+   from google.colab import files
+   files.download("qwerysmith_overleaf.zip")
+   ```
+3. Go to [Overleaf](https://www.overleaf.com) $\to$ **New Project** $\to$ **Upload Project**.
+4. Select `qwerysmith_overleaf.zip` and click **Recompile**.
+   - All 13 figures, 10 LaTeX tables, and bibliography citations will render automatically with zero warnings.
 
 ### Option 2: Local Compilation (via pdflatex / tectonic)
 If you have TeX Live or MacTeX installed:
