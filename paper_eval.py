@@ -1702,6 +1702,144 @@ def render_in_colab(run_dir: str = "/content/drive/MyDrive/qwerysmith-1.1", pape
         display(Markdown("---"))
         display(Markdown(report_path.read_text(encoding="utf-8")))
 
+    # Automatically generate Overleaf-ready ZIP package
+    create_overleaf_package(paper_dir=p_dir, output_zip="qwerysmith_paper_overleaf.zip", download_in_colab=False)
+
+
+# --------------------------------------------------------------------------
+# Overleaf ZIP Packager
+# --------------------------------------------------------------------------
+def create_overleaf_package(
+    paper_dir: str | Path = "paper",
+    output_zip: str | Path = "qwerysmith_paper_overleaf.zip",
+    download_in_colab: bool = True,
+) -> Path:
+    """
+    Packages the complete publication research paper suite for Overleaf into a single ZIP archive.
+    
+    Structure of ZIP:
+      /main.tex
+      /references.bib
+      /figures/*.png, *.pdf
+      /tables/*.tex
+      /RESEARCH_PAPER_REPORT.md
+    """
+    import shutil
+    import zipfile
+    import urllib.request
+
+    p_dir = Path(paper_dir).resolve()
+    p_dir.mkdir(parents=True, exist_ok=True)
+
+    tex_path = p_dir / "main.tex"
+    bib_path = p_dir / "references.bib"
+
+    # Search local candidate locations or fetch from GitHub
+    if not tex_path.exists():
+        for cand in [
+            Path("paper/main.tex").resolve(),
+            Path("QwerySmith-1.0/paper/main.tex").resolve(),
+            Path("/content/QwerySmith-1.0/paper/main.tex"),
+        ]:
+            if cand.exists() and cand != tex_path:
+                shutil.copy(cand, tex_path)
+                break
+        if not tex_path.exists():
+            print("  ⬇️ Fetching main.tex from GitHub repository...")
+            try:
+                url = "https://raw.githubusercontent.com/Cyrax321/QwerySmith-1.0/main/paper/main.tex"
+                urllib.request.urlretrieve(url, str(tex_path))
+            except Exception as e:
+                print(f"  ⚠️ Could not fetch main.tex: {e}")
+
+    if not bib_path.exists():
+        for cand in [
+            Path("paper/references.bib").resolve(),
+            Path("QwerySmith-1.0/paper/references.bib").resolve(),
+            Path("/content/QwerySmith-1.0/paper/references.bib"),
+        ]:
+            if cand.exists() and cand != bib_path:
+                shutil.copy(cand, bib_path)
+                break
+        if not bib_path.exists():
+            print("  ⬇️ Fetching references.bib from GitHub repository...")
+            try:
+                url = "https://raw.githubusercontent.com/Cyrax321/QwerySmith-1.0/main/paper/references.bib"
+                urllib.request.urlretrieve(url, str(bib_path))
+            except Exception as e:
+                print(f"  ⚠️ Could not fetch references.bib: {e}")
+
+    zip_out = Path(output_zip).resolve()
+    print(f"\n" + "=" * 70)
+    print(f"📦 PACKAGING OVERLEAF RESEARCH PAPER PROJECT -> {zip_out.name}")
+    print("=" * 70)
+
+    file_count = 0
+    with zipfile.ZipFile(zip_out, "w", zipfile.ZIP_DEFLATED) as zf:
+        if tex_path.exists():
+            zf.write(tex_path, arcname="main.tex")
+            file_count += 1
+            print("  ✅ [Root] main.tex")
+        else:
+            print("  ⚠️ Warning: main.tex not found!")
+
+        if bib_path.exists():
+            zf.write(bib_path, arcname="references.bib")
+            file_count += 1
+            print("  ✅ [Root] references.bib")
+
+        fig_dir = p_dir / "figures"
+        if fig_dir.exists():
+            figs = sorted(list(fig_dir.glob("*.png")) + list(fig_dir.glob("*.pdf")))
+            for f in figs:
+                zf.write(f, arcname=f"figures/{f.name}")
+                file_count += 1
+            print(f"  ✅ [figures/] Added {len(figs)} authentic publication figures")
+
+        tab_dir = p_dir / "tables"
+        if tab_dir.exists():
+            tabs = sorted(list(tab_dir.glob("*.tex")))
+            for t in tabs:
+                zf.write(t, arcname=f"tables/{t.name}")
+                file_count += 1
+            print(f"  ✅ [tables/] Added {len(tabs)} LaTeX table files")
+
+        rep_path = p_dir / "RESEARCH_PAPER_REPORT.md"
+        if rep_path.exists():
+            zf.write(rep_path, arcname="RESEARCH_PAPER_REPORT.md")
+            file_count += 1
+            print("  ✅ [Root] RESEARCH_PAPER_REPORT.md")
+
+    zip_size_mb = zip_out.stat().st_size / (1024 * 1024)
+    print(f"\n🎉 Package created: {zip_out.name} ({file_count} files, {zip_size_mb:.2f} MB)")
+
+    # Save to Google Drive if mounted
+    drive_dir = Path("/content/drive/MyDrive")
+    if drive_dir.exists():
+        drive_dest = drive_dir / zip_out.name
+        try:
+            shutil.copy(zip_out, drive_dest)
+            print(f"💾 Saved permanent backup to Google Drive: {drive_dest}")
+        except Exception as e:
+            print(f"  ⚠️ Drive backup note: {e}")
+
+    # Initiate browser download in Colab
+    if download_in_colab and "google.colab" in sys.modules:
+        try:
+            from google.colab import files
+            print("🚀 Triggering browser download...")
+            files.download(str(zip_out))
+        except Exception as e:
+            print(f"  ℹ️ Browser download note: {e}")
+
+    print("\n📋 Overleaf Setup Instructions:")
+    print("  1. Open https://www.overleaf.com and log in")
+    print("  2. Click 'New Project' -> 'Upload Project'")
+    print(f"  3. Drop or select '{zip_out.name}'")
+    print("  4. Overleaf will compile main.tex and display your paper with all figures & citations!\n")
+
+    return zip_out
+
 
 # --------------------------------------------------------------------------
 # CLI Entry Point
@@ -1714,6 +1852,8 @@ def main():
                         help="Path to output paper artifacts (default: <out>/paper_artifacts).")
     parser.add_argument("--display", action="store_true",
                         help="Display figures and reports inline in Colab / Jupyter notebook.")
+    parser.add_argument("--zip", action="store_true",
+                        help="Build Overleaf-ready ZIP archive containing paper, figures, and tables.")
     args = parser.parse_args()
 
     run_dir = Path(args.out).resolve()
@@ -1741,6 +1881,9 @@ def main():
 
     print(f"\n🎉 ALL AUTHENTIC EVALUATION FIGURES & TABLES COMPLETED!")
     print(f"📦 Files saved in: {paper_dir}")
+
+    if args.zip:
+        create_overleaf_package(paper_dir=paper_dir, output_zip=paper_dir.parent / "qwerysmith_paper_overleaf.zip", download_in_colab=False)
 
     is_ipython = "IPython" in sys.modules or "google.colab" in sys.modules
     if args.display or is_ipython:
