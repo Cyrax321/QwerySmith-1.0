@@ -648,3 +648,26 @@ def parse_args():
     p.add_argument("--force", action="store_true", help="ignore cached predictions")
     p.add_argument("--smoke", action="store_true", help="tiny run to check everything works")
     p.add_argument("--merge", action="store_true", help="export merged 16-bit model")
+    p.add_argument("--gguf", action="store_true", help="export GGUF (q4_k_m)")
+    p.add_argument("--push", default="", help=f"HF repo id to push the adapter to, e.g. your-username/{MODEL_NAME} (needs HF_TOKEN env)")
+    args, _ = p.parse_known_args()
+    if args.smoke:
+        args.mix = "sql_create_context:250,gretel:250"
+        args.n_test, args.n_external, args.n_heldout, args.max_steps = 30, 30, 30, 30
+        args.out = args.out.rstrip("/") + "-smoke"
+    return args
+
+
+def main() -> None:
+    args = parse_args()
+    print(f"=== {MODEL_NAME} | base model: {args.model} ===")
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "config.json").write_text(json.dumps(vars(args), indent=2))
+
+    if args.stage != "report":
+        import importlib.util
+
+        missing = [pkg for pkg in ("unsloth", "torch", "trl", "datasets") if importlib.util.find_spec(pkg) is None]
+        if missing:
+            sys.exit(
