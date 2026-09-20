@@ -72,6 +72,12 @@ In **QwerySmith 1.0**, the model was trained exclusively on 10,000 rows of `b-mc
 
 **Root Cause**: The model memorized narrow dataset artifacts (e.g. single tables named `table_name_XX`, string-quoted numbers like `rank = "31"`), causing catastrophic forgetting of multi-table joins and standard SQL data types.
 
+### 2. Detailed QwerySmith 1.1 Metrics with 95% Confidence Intervals
+
+| Test Split | System | Valid SQL | Exact Match | Execution Acc (95% CI) | Scored Items |
+|:---|:---|:---:|:---:|:---:|:---:|
+| **`in_dist`** | Base (Zero-Shot)<br>Base (3-Shot)<br>**QwerySmith 1.1** | 98.5%<br>98.0%<br>**98.0%** | 6.0%<br>7.0%<br>**84.5%** | 67.2% (54.7% to 77.7%)<br>67.2% (54.7% to 77.7%)<br>**88.5% (78.2% to 94.3%)** | 61/200 |
+
 ### How v1.1 Solves It:
 1. **Multi-Source Data Mixing (`--mix`)**: Draws a configurable mix across sources (`sql_create_context:5000,gretel:5000`), forcing the model to learn 100+ realistic business schemas, correct column linking, and real numeric types.
 2. **Leak-Proof Evaluation Splits**: Evaluation sets (`in_dist`, `gretel_test`, `heldout_*`) are carved out **before** constructing the training mix. Any question present in any eval set is strictly excluded from training.
