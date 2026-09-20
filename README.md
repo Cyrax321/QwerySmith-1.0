@@ -112,9 +112,36 @@ All models are published in three optimized formats to support production, edge,
 | **Merged 16-Bit** | [`Cyrax321/QwerySmith-1.0-Merged`](https://huggingface.co/Cyrax321/QwerySmith-1.0-Merged) | ~8.06 GB | Standalone v1.0 checkpoint |
 | **Quantized GGUF** | [`Cyrax321/QwerySmith-1.0-GGUF`](https://huggingface.co/Cyrax321/QwerySmith-1.0-GGUF) | ~2.5 GB | Local baseline GGUF |
 
-Run locally with Ollama:
-```bash
-ollama run Cyrax321/QwerySmith-1.0-GGUF
+---
+
+## 💻 Quickstart & Inference
+
+### 1. Fast 4-bit Inference with Unsloth (v1.1 or v1.0)
+
+```python
+from unsloth import FastLanguageModel
+
+# Load QwerySmith 1.1 (or switch to "Cyrax321/QwerySmith-1.0")
+model, tokenizer = FastLanguageModel.from_pretrained(
+    "Cyrax321/QwerySmith-1.1",
+    max_seq_length=2048,
+    load_in_4bit=True,
+)
+FastLanguageModel.for_inference(model)
+
+prompt = """<|im_start|>system
+You are a text-to-SQL assistant. Given a database schema and a question, reply with exactly one SQL query and nothing else.<|im_end|>
+<|im_start|>user
+Schema: CREATE TABLE orders (order_id INT, customer_id INT, amount DECIMAL(10,2), status VARCHAR);
+Question: What is the total revenue from completed orders?<|im_end|>
+<|im_start|>assistant
+<think>
+</think>
+"""
+
+inputs = tokenizer([prompt], return_tensors="pt").to("cuda")
+outputs = model.generate(**inputs, max_new_tokens=256, use_cache=True)
+print(tokenizer.batch_decode(outputs)[0])
 ```
 
 ---
