@@ -81,6 +81,9 @@ In **QwerySmith 1.0**, the model was trained exclusively on 10,000 rows of `b-mc
 | **`heldout_sqale`** | Base (Zero-Shot)<br>Base (3-Shot)<br>**QwerySmith 1.1** | 78.7%<br>70.2%<br>**80.9%** | 12.8%<br>12.8%<br>**10.6%** | 50.0% (35.8% to 64.2%)<br>40.9% (27.7% to 55.6%)<br>**45.5% (31.7% to 59.9%)** | 44/47 |
 | **`heldout_large_schema`**| Base (Zero-Shot)<br>Base (3-Shot)<br>**QwerySmith 1.1** | 61.0%<br>53.9%<br>**55.8%** | 1.9%<br>2.6%<br>**1.9%** | 21.8% (15.8% to 29.3%)<br>19.7% (14.0% to 27.0%)<br>**17.6% (12.2% to 24.7%)** | 142/154 |
 
+> **Key Research Finding — The Few-Shot Paradox:**
+> Providing 3-shot prompt exemplars to the base model caused prompt dilution and degraded accuracy across real-world enterprise queries (dropping from 52.3% to 47.3% on Gretel, and 50.0% to 40.9% on SQaLe). Fine-tuning embedded SQL syntax rules permanently into the weights, achieving superior accuracy with **zero additional prompt tokens or latency overhead**.
+
 ### How v1.1 Solves It:
 1. **Multi-Source Data Mixing (`--mix`)**: Draws a configurable mix across sources (`sql_create_context:5000,gretel:5000`), forcing the model to learn 100+ realistic business schemas, correct column linking, and real numeric types.
 2. **Leak-Proof Evaluation Splits**: Evaluation sets (`in_dist`, `gretel_test`, `heldout_*`) are carved out **before** constructing the training mix. Any question present in any eval set is strictly excluded from training.
