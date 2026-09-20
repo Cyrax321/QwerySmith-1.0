@@ -166,26 +166,25 @@ python QwerySmith/Qwerysmith_V11.py --stage all --out runs/qwerysmith-1.1 \
 
 ---
 
+---
+
 ## 🤖 Interactive Self-Healing Agent (`agent.py`)
 
-`agent.py` provides a production-ready wrapper that connects QwerySmith to any SQLite or PostgreSQL database:
+`agent.py` provides a production-ready interface connecting QwerySmith to SQLite or PostgreSQL databases:
 
 ```python
 from agent import QwerySmithAgent
 
-# Connect to any business database
-agent = QwerySmithAgent(db_path="ecommerce.db")
-
-# Ask questions in plain English
-result = agent.query("What are the top 5 customers by revenue this month?")
+agent = QwerySmithAgent(db_path="company.db")
+result = agent.query("Find all customers who made more than 3 purchases this year.")
 print("Generated SQL:", result["sql"])
 print("Query Result:", result["rows"])
 ```
 
-### Agent Features:
-- **Introspection**: Automatically extracts table schemas, foreign keys, and indexes.
-- **Self-Healing Loop**: If a query fails execution (syntax error, missing join), the agent inspects the database error, feeds the traceback back to the LLM, and regenerates a corrected query.
-- **Lenient Formatting**: Automatically strips thinking blocks (`<think>...</think>`), markdown fences, and explanatory chatter.
+### Agent Capabilities:
+- **Schema Introspection**: Automatically reads database catalogs to extract table names, column types, foreign keys, and primary keys.
+- **Self-Healing Loop**: If a generated query causes an execution error (e.g., column mislabeling or invalid join), the agent captures the database error traceback and prompts the model to self-correct.
+- **Lenient Output Sanitizer**: Automatically cleans `<think>...</think>` tokens, markdown fences, and explanatory chatter.
 
 ---
 
