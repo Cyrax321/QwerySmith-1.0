@@ -53,6 +53,15 @@ QwerySmith is developed across two complementary releases:
 
 All evaluations use in-memory SQLite instances pre-populated with synthetic or gold `INSERT` rows to measure **execution correctness** (returning identical row sets) rather than mere superficial string matching.
 
+### 1. The Head-to-Head Progression: Base Model vs v1.0 vs v1.1
+
+| Benchmark Split | Base Model (3-Shot) | QwerySmith 1.0 | QwerySmith 1.1 | v1.1 vs Base (Head-to-Head) |
+|:---|:---:|:---:|:---:|:---|
+| **In-Distribution** (`sql-create-context`) | 67.2% | **88.5%** | **88.5%** *(84.5% EM)* | **13 Wins, 0 Losses** (+21.3% leap; $p < 0.05$) |
+| **Enterprise Test** (`synthetic_text_to_sql`) | 47.3% | 34.6% | **55.7%** *(32.0% EM)* | **43 Wins, 18 Losses** (+25 net wins over base) |
+| **Noisy Schemas** (`heldout_sqale`) | 40.9% | — | **45.5%** *(80.9% Valid)* | **4 Wins, 2 Losses** (Highest syntax resilience) |
+| **Complex Schemas** (`heldout_large_schema`)| 19.7% | — | **17.6%** *(55.8% Valid)* | **10 Wins, 13 Losses** (Overlapping 95% CIs) |
+
 ### The Single-Source Overfitting Problem (v1.0 Diagnosis)
 In **QwerySmith 1.0**, the model was trained exclusively on 10,000 rows of `b-mc2/sql-create-context`. While in-distribution execution accuracy surged to **88.5%**, the model **regressed by -18%** on external test queries relative to the untouched base model:
 
