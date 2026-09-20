@@ -248,6 +248,22 @@ python qwerysmith_eval.py --stage all --out runs/v11-C
 
 ---
 
+---
+
+## 📖 Citation
+
+If you use QwerySmith, its curriculum mixing strategy, or the evaluation framework in your research, please cite:
+
+```bibtex
+@misc{qwerysmith2026,
+  title={QwerySmith: Multi-Source Curriculum Fine-Tuning and Robust Evaluation for Text-to-SQL},
+  author={Cyrax},
+  year={2026},
+  publisher={GitHub},
+  howpublished={\url{https://github.com/Cyrax321/QwerySmith-1.0}}
+}
+```
+
 ## 📜 License
 
 This project is licensed under the MIT License.
