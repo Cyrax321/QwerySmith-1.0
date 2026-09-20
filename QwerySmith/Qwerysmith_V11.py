@@ -563,3 +563,88 @@ How to read this
         json.dumps({f"{s}/{n}": m for (s, n), m in results.items()}, indent=1, default=list)
     )
     print("\n" + table + "\n" + "\n".join(extra))
+
+    # per-example predictions
+    with open(out / "predictions.csv", "w", newline="") as fh:
+        w = csv.writer(fh)
+        header = ["set", "question", "gold"]
+        for n in SYSTEMS:
+            header += [f"{n}_pred", f"{n}_exec_correct"]
+        w.writerow(header)
+        for sname, items in sets.items():
+            for i, it in enumerate(items):
+                row = [sname, it["question"], it["gold"]]
+                for n in SYSTEMS:
+                    p = preds_by.get((sname, n))
+                    q = per_item.get((sname, n))
+                    row += [p[i] if (p and i < len(p)) else "", q[i]["ex"] if (q and i < len(q)) else ""]
+                w.writerow(row)
+
+    # chart
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        set_names = list(sets)
+        width = 0.8 / len(SYSTEMS)
+        fig, ax = plt.subplots(figsize=(7, 4))
+        for j, n in enumerate(SYSTEMS):
+            vals, errs = [], [[], []]
+            for s in set_names:
+                m = results.get((s, n))
+                vals.append(100 * m["exec_acc"] if m else 0)
+                lo, hi = m["exec_ci"] if m else (0, 0)
+                errs[0].append(max(0, vals[-1] - 100 * lo))
+                errs[1].append(max(0, 100 * hi - vals[-1]))
+            xs = [k + j * width for k in range(len(set_names))]
+            ax.bar(xs, vals, width, yerr=errs, capsize=3, label=n)
+        ax.set_xticks([k + width for k in range(len(set_names))])
+        ax.set_xticklabels(set_names)
+        ax.set_ylabel("execution accuracy (%)")
+        ax.set_ylim(0, 100)
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig(out / "comparison.png", dpi=150)
+        print(f"Chart saved to {out / 'comparison.png'}")
+    except Exception as e:  # noqa: BLE001
+        print(f"(chart skipped: {e})")
+    print(f"Report written to {out / 'results.md'}")
+
+
+# --------------------------------------------------------------------------
+# 5. Main
+# --------------------------------------------------------------------------
+def parse_args():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--stage", default="all", choices=["all", "baseline", "train", "eval", "report", "export"])
+    p.add_argument("--model", default=MODEL_DEFAULT)
+    p.add_argument("--out", default=f"runs/{MODEL_NAME.lower()}")
+    p.add_argument("--n-test", type=int, default=200)
+    p.add_argument("--n-external", type=int, default=300, help="size of the gretel_test near-distribution set; 0 = skip")
+    # v1.1: replaces the single --n-train with a mix spec; see data_sources.py
+    p.add_argument("--mix", default="sql_create_context:5000,gretel:5000",
+                    help="comma-separated source:count pairs drawn for training, e.g. "
+                         "sql_create_context:5000,gretel:5000 (see SOURCES in data_sources.py)")
+    p.add_argument("--heldout", default="",
+                    help="comma-separated registry names, each NEVER put in --mix, e.g. "
+                         "sqale,large_schema. Empty = skip. Each becomes its own "
+                         "heldout_<name> eval set -- these are the only true generalization "
+                         "checks once gretel is part of the training mix.")
+    p.add_argument("--n-heldout", type=int, default=300)
+    p.add_argument("--epochs", type=float, default=1)
+    p.add_argument("--max-steps", type=int, default=-1, help="overrides epochs when > 0")
+    p.add_argument("--batch-size", type=int, default=2)
+    p.add_argument("--grad-accum", type=int, default=8)
+    p.add_argument("--lr", type=float, default=1e-4, help="v1.1 default lowered from 2e-4 (v1.0) to reduce overfitting")
+    p.add_argument("--dropout", type=float, default=0.05, help="LoRA dropout; v1.1 default, was hardcoded 0 in v1.0")
+    p.add_argument("--rank", type=int, default=16)
+    p.add_argument("--max-len", type=int, default=2048)
+    p.add_argument("--gen-batch", type=int, default=16)
+    p.add_argument("--save-steps", type=int, default=0,
+                    help="checkpoint every N steps so the best checkpoint can be chosen by "
+                         "eval instead of always taking the final step; 0 = save only at the end")
+    p.add_argument("--force", action="store_true", help="ignore cached predictions")
+    p.add_argument("--smoke", action="store_true", help="tiny run to check everything works")
+    p.add_argument("--merge", action="store_true", help="export merged 16-bit model")
