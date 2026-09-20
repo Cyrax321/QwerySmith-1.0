@@ -26,6 +26,10 @@
 
 ---
 
+## 🏛️ Model Family & Evolution: v1.0 vs v1.1
+
+QwerySmith is developed across two complementary releases:
+
 ## 🔬 What's New in QwerySmith 1.1
 
 ### The Single-Source Overfitting Problem (v1.0 Diagnosis)
