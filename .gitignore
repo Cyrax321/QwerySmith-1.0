@@ -1,0 +1,33 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Output directories & caches
+runs/
+trainer/
+adapter/
+merged_16bit/
+gguf/
+*.log
+train_log.json
+preds/
+
+# Model checkpoints & weights
+*.pt
+*.bin
+*.safetensors
+*.gguf
+
+# Environments & IDEs
+.env
+.venv
+env/
+venv/
+ENV/
+.vscode/
+.idea/
+.DS_Store
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
