@@ -18,6 +18,8 @@ In Google Colab:
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
+from datetime import datetime
 import os
 import re
 import sqlite3
@@ -230,12 +232,58 @@ GREETINGS = {
 }
 
 
-def is_conversational_greeting(text: str) -> bool:
-    """Detects if user input is casual chit-chat or greeting rather than a database query."""
-    clean = re.sub(r"[^\w\s]", "", text.strip().lower())
-    if clean in GREETINGS:
-        return True
-    return clean.startswith(("hello ", "hey ", "hi there", "who are you", "what can you do"))
+def classify_intent(text: str, table_names: list[str] | None = None) -> str:
+    """Classifies user input into:
+    - 'COMMAND': Starts with ':' or exit keyword
+    - 'REALTIME_SYS': Current time, date, environment status
+    - 'DB_META': Asking about tables, schema, database row counts
+    - 'DB_QUERY': Asking to query, filter, aggregate, or calculate database records
+    - 'CONVERSATIONAL': General chit-chat, greetings, SQL concepts, reasoning
+    """
+    clean = text.strip().lower()
+    clean_alpha = re.sub(r"[^\w\s]", "", clean)
+
+    if clean.startswith(":") or clean in ["exit", "quit", "q"]:
+        return "COMMAND"
+
+    if clean_alpha in GREETINGS:
+        return "CONVERSATIONAL"
+
+    # Realtime system queries
+    time_keywords = ["what time", "current time", "what date", "todays date", "today's date", "what day is it"]
+    if any(tk in clean for tk in time_keywords):
+        return "REALTIME_SYS"
+
+    # Database meta queries
+    meta_keywords = ["what tables", "list tables", "show tables", "database schema", "table list", "how many tables"]
+    if any(mk in clean for mk in meta_keywords):
+        return "DB_META"
+
+    # Check for table or database attribute mentions
+    db_terms = {
+        "customer", "customers", "order", "orders", "product", "products", "item", "items",
+        "review", "reviews", "sales", "revenue", "price", "stock", "spent", "spending",
+        "bought", "buy", "purchase", "purchases", "highest", "lowest", "average", "total",
+        "sum", "count", "top", "tier", "platinum", "gold", "silver", "bronze", "country"
+    }
+    if table_names:
+        for t in table_names:
+            db_terms.add(t.lower())
+
+    words = set(clean_alpha.split())
+    if words & db_terms:
+        return "DB_QUERY"
+
+    # Data query verbs & phrases
+    query_phrases = [
+        "who spent", "how many", "which customer", "which product", "list all", "show me all",
+        "find all", "calculate the", "what is the total", "what are the top", "rank the"
+    ]
+    if any(qp in clean for qp in query_phrases):
+        return "DB_QUERY"
+
+    # Otherwise it's general conversation, conceptual question, or greeting
+    return "CONVERSATIONAL"
 
 
 # --------------------------------------------------------------------------
@@ -296,6 +344,49 @@ class QwerySmithAgent:
             self.model.eval()
             print(f"⚡ Transformers model loaded in {time.time() - t0:.1f}s.")
 
+    @contextmanager
+    def disable_adapter_ctx(self):
+        """Temporarily bypasses fine-tuned LoRA adapter to access base model's full conversational abilities."""
+        if hasattr(self.model, "disable_adapter"):
+            try:
+                with self.model.disable_adapter():
+                    yield
+                return
+            except (TypeError, AttributeError):
+                pass
+        yield
+
+    def generate_chat_text(self, messages: list[dict], max_tokens: int = 256) -> str:
+        """Generates conversational text using base model without SQL adapter interference."""
+        prompt = self.tok.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False,
+        )
+        import torch
+        import warnings
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        enc = self.tok([prompt], return_tensors="pt").to(device)
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*max_new_tokens.*")
+            warnings.filterwarnings("ignore", category=UserWarning)
+            with torch.no_grad():
+                with self.disable_adapter_ctx():
+                    gen = self.model.generate(
+                        **enc,
+                        max_new_tokens=max_tokens,
+                        do_sample=True,
+                        temperature=0.7,
+                        top_p=0.9,
+                        pad_token_id=self.tok.pad_token_id or self.tok.eos_token_id,
+                        use_cache=True,
+                    )
+        raw = self.tok.decode(gen[0][enc.input_ids.shape[1]:], skip_special_tokens=True)
+        raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+        return raw
+
     def get_schema(self, conn: sqlite3.Connection) -> str:
         """Extracts complete CREATE TABLE DDL definitions from active SQLite database."""
         cur = conn.cursor()
@@ -345,8 +436,54 @@ class QwerySmithAgent:
         raw = self.tok.decode(gen[0][enc.input_ids.shape[1]:], skip_special_tokens=True)
         return clean_sql(raw)
 
+    def synthesize_human_response(self, question: str, sql: str, columns: list, rows: list) -> str:
+        """Translates database query results into friendly, clear, natural human language."""
+        if not rows:
+            data_summary = "The query executed successfully, but returned 0 matching records."
+        else:
+            header = ", ".join(columns)
+            sample_rows = "\n".join(str(r) for r in rows[:15])
+            data_summary = f"Columns: {header}\nRows ({len(rows)} total):\n{sample_rows}"
+            if len(rows) > 15:
+                data_summary += f"\n... ({len(rows) - 15} additional rows)"
+
+        now_str = datetime.now().strftime("%A, %B %d, %Y %I:%M %p")
+        system_msg = (
+            f"You are QwerySmith, an intelligent AI database assistant and business data analyst. "
+            f"Current real-time timestamp: {now_str}. "
+            "Given a user question, executed SQL query, and live database results, explain the findings directly and conversationally in natural human English. "
+            "Be clear, concise, and helpful. Mention key numbers and takeaways."
+        )
+        user_msg = (
+            f"User Question: {question}\n\n"
+            f"Executed SQL: {sql}\n\n"
+            f"Live Database Results:\n{data_summary}\n\n"
+            "Please summarize this answer directly in friendly, professional natural human language:"
+        )
+
+        return self.generate_chat_text([
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_msg},
+        ], max_tokens=220)
+
+    def chat_conversational(self, user_prompt: str, table_names: list[str] | None = None) -> str:
+        """Responds to general chit-chat, conceptual questions, coding help, and greetings."""
+        now_str = datetime.now().strftime("%A, %B %d, %Y %I:%M %p")
+        tables_str = ", ".join(table_names) if table_names else "none"
+        system_msg = (
+            f"You are QwerySmith, an advanced conversational AI assistant and expert SQL database engineer. "
+            f"Real-time timestamp: {now_str}. "
+            f"You are connected to a live database containing tables: [{tables_str}]. "
+            "You can engage in natural conversation, explain database and SQL concepts, write code, "
+            "or help the user analyze data. Reply naturally, warmly, and helpfully."
+        )
+        return self.generate_chat_text([
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_prompt},
+        ], max_tokens=300)
+
     def query(self, db_path: str | Path, question: str, auto_repair: bool = True) -> dict:
-        """End-to-end execution: NL Question -> SQL -> DB Sandbox Execution -> Results."""
+        """End-to-end execution: NL Question -> SQL -> DB Sandbox Execution -> Human Synthesis."""
         conn = sqlite3.connect(str(db_path))
         schema = self.get_schema(conn)
 
@@ -367,11 +504,16 @@ class QwerySmithAgent:
             rows = cur.fetchmany(100)
             latency_exec = (time.perf_counter() - t_exec_start) * 1000
             conn.close()
+
+            # Human Language Synthesis
+            human_ans = self.synthesize_human_response(question, sql, columns, rows)
+
             return {
                 "question": question,
                 "sql": sql,
                 "columns": columns,
                 "rows": rows,
+                "human_answer": human_ans,
                 "latency_gen_ms": latency_gen,
                 "latency_exec_ms": latency_exec,
                 "success": True,
@@ -386,12 +528,16 @@ class QwerySmithAgent:
                     columns = [desc[0] for desc in cur.description] if cur.description else []
                     rows = cur.fetchmany(100)
                     conn.close()
+
+                    human_ans = self.synthesize_human_response(question, repaired_sql, columns, rows)
+
                     return {
                         "question": question,
                         "sql": repaired_sql,
                         "repaired_from": sql,
                         "columns": columns,
                         "rows": rows,
+                        "human_answer": human_ans,
                         "latency_gen_ms": latency_gen,
                         "latency_exec_ms": 0.0,
                         "success": True,
@@ -423,23 +569,24 @@ class QwerySmithAgent:
         conn.close()
 
         print("\n" + "=" * 72)
-        print("💬 QWERYSMITH 1.1 INTERACTIVE DATABASE CHAT AGENT")
+        print("💬 QWERYSMITH 1.1 INTERACTIVE DATABASE & CONVERSATIONAL AGENT")
         print("=" * 72)
         print(f"📁 Connected Database : {db_file.name}")
         print(f"📊 Available Tables   : {', '.join(tables)}")
         print(f"🤖 Loaded Model       : {self.model_path}")
         print("💡 Special Commands   : :schema, :tables, :sample <table>, :db <path>, :exit")
         print("-" * 72)
-        print("Try asking questions like:")
-        print("  • Which customers spent more than $1,000 in total?")
-        print("  • What is our top-selling product by revenue?")
-        print("  • List all products with fewer than 15 items in stock.")
-        print("  • What is the average customer order value per country?")
+        print("You can chat normally or ask live database queries:")
+        print("  • 'Hey! How are you doing today?'")
+        print("  • 'What is an inner join vs left join in SQL?'")
+        print("  • 'Which customers spent more than $1,000 in total?'")
+        print("  • 'What is our top-selling product by revenue?'")
+        print("  • 'What is today's date and how many orders do we have?'")
         print("=" * 72 + "\n")
 
         while True:
             try:
-                user_input = input("💬 Ask a question (or ':exit'): ").strip()
+                user_input = input("💬 You: ").strip()
             except (KeyboardInterrupt, EOFError):
                 print("\n👋 Goodbye!")
                 break
@@ -451,18 +598,6 @@ class QwerySmithAgent:
             if user_input.lower() in [":exit", ":quit", "exit", "quit", ":q"]:
                 print("👋 Session ended. Happy querying!")
                 break
-
-            if is_conversational_greeting(user_input):
-                print(f"\n👋 Hello! I am QwerySmith 1.1, your autonomous Text-to-SQL database agent.")
-                print(f"I am connected to '{db_file.name}' ({len(tables)} tables: {', '.join(tables)}).")
-                print("Ask me questions in plain English to query your database, for example:")
-                print("  • 'Which customers spent more than $1,000 in total?'")
-                print("  • 'What is our top-selling product by revenue?'")
-                print("  • 'List all products with stock quantity below 20.'")
-                print("  • 'Show the average order value per country.'")
-                print("  • 'Show all 5-star reviews along with customer name.'")
-                print("\nCommands: :schema, :tables, :sample <table>, :db <path>, :exit\n")
-                continue
 
             if user_input.lower() == ":schema":
                 conn = sqlite3.connect(str(db_file))
@@ -523,24 +658,61 @@ class QwerySmithAgent:
                 print(f"✅ Switched active database to: {db_file.name} ({len(tables)} tables)")
                 continue
 
-            # Natural Language SQL Generation & Execution
+            # Classify Intent
+            intent = classify_intent(user_input, tables)
+
+            # Route 1: Real-time System Queries
+            if intent == "REALTIME_SYS":
+                now = datetime.now()
+                print(f"\n🕒 Real-Time System Status:")
+                print(f"  • Current Date & Time : {now.strftime('%A, %B %d, %Y - %I:%M:%S %p')}")
+                print(f"  • Connected Database  : {db_file.name} ({len(tables)} tables active)\n")
+                continue
+
+            # Route 2: Database Metadata
+            if intent == "DB_META":
+                conn = sqlite3.connect(str(db_file))
+                cur = conn.cursor()
+                print(f"\n📊 Live Database Overview ({db_file.name}):")
+                for t in tables:
+                    cur.execute(f"SELECT count(*) FROM {t};")
+                    cnt = cur.fetchone()[0]
+                    print(f"  • Table '{t}': {cnt} live records")
+                conn.close()
+                print()
+                continue
+
+            # Route 3: General Chit-Chat / Concepts / Reasoning
+            if intent == "CONVERSATIONAL":
+                print("\n💭 Thinking...")
+                reply = self.chat_conversational(user_input, tables)
+                print(f"\n🤖 QwerySmith:\n  {reply}\n")
+                continue
+
+            # Route 4: Real-time Database Query & Natural Language Synthesis
             print("\n⚡ Synthesizing SQL query...")
             res = self.query(db_file, user_input)
 
-            print(f"🧠 Generated SQL:")
-            print(f"   \033[1;32m{res['sql']}\033[0m")
-
-            if "repaired_from" in res:
-                print(f"   \033[1;33m(Self-healed from previous syntax fault: {res['repaired_from']})\033[0m")
-
             if res["success"]:
+                # Print natural human explanation first
+                print(f"\n🤖 QwerySmith:")
+                print(f"  {res.get('human_answer', '')}\n")
+
+                # Print structured data table
                 cols = res["columns"]
                 rows = res["rows"]
-                print(f"\n📊 Results ({len(rows)} rows, {res.get('latency_gen_ms', 0):.0f}ms gen):")
+                print(f"📊 Live Data ({len(rows)} rows, {res.get('latency_gen_ms', 0):.0f}ms gen):")
                 print(format_table(cols, rows))
+
+                # Print underlying SQL
+                print(f"\n🔍 Generated SQL:")
+                print(f"   \033[1;32m{res['sql']}\033[0m")
+                if "repaired_from" in res:
+                    print(f"   \033[1;33m(Self-healed from: {res['repaired_from']})\033[0m")
                 print()
             else:
-                print(f"\n❌ Execution Failed: {res.get('error', 'Unknown error')}\n")
+                print(f"\n❌ Execution Failed: {res.get('error', 'Unknown error')}")
+                print(f"   Attempted SQL: {res.get('sql', 'N/A')}\n")
 
 
 # --------------------------------------------------------------------------
