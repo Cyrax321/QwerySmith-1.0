@@ -26,12 +26,14 @@
 
 ---
 
+<a id="model-family"></a>
 ## 🏛️ Model Family & Evolution: v1.0 vs v1.1
 
 QwerySmith is developed across two complementary releases:
 
 ---
 
+<a id="model-family"></a>
 ## 🏛️ Model Family & Evolution: v1.0 vs v1.1
 
 QwerySmith is developed across two complementary releases:
@@ -49,6 +51,7 @@ QwerySmith is developed across two complementary releases:
 
 ---
 
+<a id="benchmarks"></a>
 ## 📊 Comprehensive Benchmark Results
 
 All evaluations use in-memory SQLite instances pre-populated with synthetic or gold `INSERT` rows to measure **execution correctness** (returning identical row sets) rather than mere superficial string matching.
