@@ -671,3 +671,33 @@ def main() -> None:
         missing = [pkg for pkg in ("unsloth", "torch", "trl", "datasets") if importlib.util.find_spec(pkg) is None]
         if missing:
             sys.exit(
+                f"\n[QwerySmith] Missing required package(s): {', '.join(missing)}\n"
+                f"In Google Colab, run this install command first:\n\n"
+                f"  !pip install -q \"unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git\" trl datasets matplotlib\n"
+            )
+        import unsloth  # noqa: F401  (must be imported before transformers/trl)
+        import torch
+
+        if not torch.cuda.is_available():
+            sys.exit("No GPU found. In Colab: Runtime > Change runtime type > T4 GPU.")
+        print("GPU:", torch.cuda.get_device_name(0))
+
+    # v1.1: build_sets() carves out every eval set (in_dist, gretel_test,
+    # heldout) BEFORE assembling the training mix, so nothing in --mix can
+    # leak into an eval set. See data_sources.py.
+    train_items, sets = build_sets(args)
+    shots = train_items[:3]
+
+    stage = args.stage
+    model = tok = None
+
+    if stage in ("baseline", "all"):
+        stage_baseline(args, sets, shots)
+
+    if stage in ("train", "all"):
+        stage_train(args, train_items)
+        del model, tok
+        free_gpu()
+        model = tok = None
+
+    if stage in ("eval", "all"):
