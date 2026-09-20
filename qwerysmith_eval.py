@@ -3061,3 +3061,616 @@ def make_calibration_table(ctx: Ctx) -> None:
 # @@VERIFY@@
 
 # --------------------------------------------------------------------------
+# 10. GPU stages
+# --------------------------------------------------------------------------
+def load_run(args) -> RunPaths:
+    """Collect every artefact the finished run left on disk."""
+    out = Path(args.out).expanduser()
+    if not out.exists():
+        sys.exit(
+            f"Run directory not found: {out}\n"
+            "Point --out at the folder QwerySmith.py created (the one containing config.json "
+            "and preds/), for example --out /content/drive/MyDrive/QwerySmith-1.0"
+        )
+    eval_dir = out / "eval"
+    eval_dir.mkdir(parents=True, exist_ok=True)
+    preds_dir = out / "preds"
+    adapter_dir = Path(args.adapter).expanduser() if args.adapter else out / "adapter"
+
+    cfg = json_load(out / "config.json", {})
+    cfg = cfg if isinstance(cfg, dict) else {}
+    train_log = json_load(out / "train_log.json", []) or []
+    if isinstance(train_log, dict):
+        train_log = train_log.get("log", [])
+    if not isinstance(train_log, list):
+        train_log = []
+
+    preds: dict = {}
+    if preds_dir.exists():
+        for path in sorted(preds_dir.glob("*.json")):
+            payload = json_load(path, None)
+            if not payload:
+                continue
+            stem = path.stem
+            system, set_name = stem.split("__", 1) if "__" in stem else (stem, "in_dist")
+            preds[(system, set_name)] = payload
+    for extra in sorted(eval_dir.glob("*__*.json")):
+        payload = json_load(extra, None)
+        if not payload:
+            continue
+        system, set_name = extra.stem.split("__", 1)
+        preds.setdefault((system, set_name), payload)
+
+    manifest = json_load(out / "manifest.json", {}) or {}
+    manifest = manifest if isinstance(manifest, dict) else {}
+
+    log(f"run directory : {out}")
+    log(f"model         : {cfg.get('model', args.model)}")
+    if cfg:
+        log("config        : " + ", ".join(f"{k}={cfg[k]}" for k in sorted(cfg)))
+    log(f"train log     : {len(train_log)} entries")
+    for (system, set_name), payload in sorted(preds.items()):
+        log(f"predictions   : {system} / {set_name}: {len(payload.get('pred', []))} answers")
+    have = sorted(k for k in ("confidence", "self_consistency", "robustness") if (eval_dir / f"{k}.json").exists())
+    if have:
+        log("sidecars      : " + ", ".join(have))
+    missing = [s for s in SYSTEMS if not any(k[0] == s for k in preds)]
+    if missing:
+        log(f"WARNING       : no cached predictions for {', '.join(missing)}")
+    if not preds:
+        sys.exit(
+            "No cached predictions found.\n"
+            f"Expected files such as {preds_dir}/finetuned__in_dist.json\n"
+            "Generate them once with:  python QwerySmith.py --stage eval --out <this folder>"
+        )
+    return RunPaths(out, eval_dir, preds_dir, adapter_dir, cfg, train_log, preds, manifest)
+
+
+def score_all(ctx: Ctx, conf_map: dict | None = None, sc_map: dict | None = None) -> None:
+    """Score every (set, system, item) with every metric. Pure CPU, no model needed."""
+    conf_map = conf_map or {}
+    sc_map = sc_map or {}
+    for set_name, items in ctx.items.items():
+        for system in SYSTEMS:
+            payload = ctx.paths.preds.get((system, set_name))
+            if not payload:
+                continue
+            preds = payload.get("pred", [])
+            raws = payload.get("raw") or preds
+            scores = []
+            for idx, it in enumerate(items):
+                if idx >= len(preds):
+                    break
+                gold, raw = it["gold"], raws[idx]
+                pred = clean_sql(preds[idx])
+                schema = parse_schema(it.get("schema", ""))
+                g_flags, p_flags = clause_flags(gold), clause_flags(pred)
+                g_refs = extract_refs(gold, schema)
+                p_refs = extract_refs(pred, schema)
+                conn = make_db(it.get("context", ""), gold, seed=idx)
+                ok_g, rows_g = run_query(conn, gold)
+                ok_p, rows_p = run_query(conn, pred)
+                conn.close()
+                scorable = bool(ok_g and rows_g)
+                ex = (bool(ok_p) and _canon(rows_g) == _canon(rows_p)) if scorable else None
+                valid = bool(ok_p)
+                em = _norm(pred) == _norm(gold)
+                outcome = (
+                    "executed_exact" if ex and em
+                    else "executed_match" if ex
+                    else "valid_wrong" if valid
+                    else "invalid"
+                )
+                error = "" if valid else classify_error(pred, gold, schema, p_flags, g_flags, ok_g)
+                lp, lr, lf, _ = schema_link(g_refs, p_refs)
+                conf_row = conf_map.get((set_name, system, idx), {})
+                sc_row = sc_map.get((set_name, system, idx), {})
+                scores.append(
+                    ItemScore(
+                        set_name=set_name, system=system, idx=idx,
+                        question=it.get("question", ""), gold=gold, pred=pred, raw=raw,
+                        valid=valid, em=em, gold_scorable=scorable, ex=ex, outcome=outcome,
+                        complexity=classify_complexity(gold),
+                        gold_sig=signature_full(gold), pred_sig=signature_full(pred),
+                        gold_sig_full=signature_full(gold), pred_sig_full=signature_full(pred),
+                        gold_flags=g_flags, pred_flags=p_flags,
+                        gold_tables=g_refs["tables"], pred_tables=p_refs["tables"],
+                        gold_cols=g_refs["columns"], pred_cols=p_refs["columns"],
+                        cand_tables=sorted(schema["names"]), cand_cols=sorted(schema["columns"]),
+                        token_f1=token_f1(pred, gold),
+                        token_f1_nolit=token_f1(pred, gold, no_literals=True),
+                        edit_sim=edit_similarity(pred, gold),
+                        clause_jaccard=clause_jaccard(g_flags, p_flags),
+                        component_f1=component_f1(g_flags, p_flags),
+                        link_p=lp, link_r=lr, link_f=lf, error=error,
+                        conf=(conf_row or {}).get("conf"),
+                        conf_extra=conf_row,
+                        sc_pass=sc_row.get("pass_at_k"), sc_majority=sc_row.get("majority_correct"),
+                        sc_agree=sc_row.get("agreement"), sc_latency=sc_row.get("seconds"),
+                    )
+                )
+            if scores:
+                ctx.scores[(set_name, system)] = scores
+
+
+def classify_error(pred: str, gold: str, schema: dict, p_flags: dict, g_flags: dict, gold_ok: bool) -> str:
+    """A short taxonomy of *why* an answer failed - nice for the error-analysis table."""
+    if not pred.strip():
+        return "no sql produced"
+    if not re.match(r"(?is)^\s*(select|with)\b", pred):
+        return "did not answer with SQL"
+    low = pred.lower()
+    used = extract_refs(pred, schema)
+    if used["tables"] and not (set(used["tables"]) & schema["names"]):
+        return "hallucinated table"
+    unknown = [c for c in used["columns"] if c not in schema["columns"]]
+    if unknown:
+        return "hallucinated column"
+    if "syntax" in low or ok_fake(low):
+        return "syntax error"
+    if p_flags["aggregate"] and not g_flags["aggregate"]:
+        return "invented aggregation"
+    if g_flags["aggregate"] and not p_flags["aggregate"]:
+        return "missing aggregation"
+    if g_flags["join"] and not p_flags["join"]:
+        return "missing join"
+    if p_flags["join"] and not g_flags["join"]:
+        return "spurious join"
+    if not p_flags["where"] and g_flags["where"]:
+        return "dropped filter"
+    if not gold_ok:
+        return "semantic error (gold not executable here)"
+    return "semantic error"
+
+
+def ok_fake(low: str) -> bool:
+    return any(tok in low for tok in ("select from", "from where", "select where", "()"))
+
+
+def summarise_scores(scores: Sequence[ItemScore], n_boot: int = 2000) -> dict:
+    """The per-(set, system) metric block used by every table, figure and JSON export."""
+    n = len(scores)
+    k_valid = sum(1 for s in scores if s.valid)
+    k_em = sum(1 for s in scores if s.em)
+    scored = [s for s in scores if s.ex is not None]
+    k_ex = sum(1 for s in scored if s.ex)
+    outcomes = Counter(s.outcome for s in scores)
+    m = {
+        "n": n,
+        "n_valid": k_valid,
+        "n_exact": k_em,
+        "n_scorable": len(scored),
+        "n_exec": k_ex,
+        "valid_rate": safe_div(k_valid, n),
+        "valid_rate_ci": wilson(k_valid, n),
+        "exact_match": safe_div(k_em, n),
+        "exact_match_ci": wilson(k_em, n),
+        "execution_accuracy": safe_div(k_ex, len(scored)) if scored else 0.0,
+        "execution_accuracy_ci": wilson(k_ex, len(scored)),
+        "execution_accuracy_strict": safe_div(k_ex, n),
+        "outcomes": {k: outcomes.get(k, 0) for k in OUTCOME_LABELS},
+        "recovered_by_execution": sum(
+            1 for s in scores if s.outcome == "executed_match" and s.valid
+        ),
+        "error_rate": safe_div(n - k_ex, len(scored)) if scored else 0.0,
+        "error_types": dict(Counter(s.error for s in scores if s.error)),
+        "mean_confidence": mean([s.conf for s in scores if s.conf is not None]),
+        "mean_agree_gold": mean(
+            [s.conf_extra.get("p_agree") for s in scores if s.conf_extra.get("p_agree") is not None]
+        ),
+    }
+    for key, vals in (
+        ("token_f1", [s.token_f1 for s in scores]),
+        ("token_f1_no_literals", [s.token_f1_nolit for s in scores]),
+        ("edit_similarity", [s.edit_sim for s in scores]),
+        ("clause_jaccard", [s.clause_jaccard for s in scores]),
+        ("component_f1", [s.component_f1 for s in scores]),
+        ("schema_link_f1", [s.link_f for s in scores]),
+        ("schema_link_precision", [s.link_p for s in scores]),
+        ("schema_link_recall", [s.link_r for s in scores]),
+    ):
+        m[key] = mean(vals)
+        m[f"{key}_ci"] = bootstrap_mean_ci(vals, n_boot=n_boot)
+    tp = sum(len(set(s.pred_tables) & set(s.gold_tables)) + len(set(s.pred_cols) & set(s.gold_cols)) for s in scores)
+    fp = sum(len(set(s.pred_tables) - set(s.gold_tables)) + len(set(s.pred_cols) - set(s.gold_cols)) for s in scores)
+    fn = sum(len(set(s.gold_tables) - set(s.pred_tables)) + len(set(s.gold_cols) - set(s.pred_cols)) for s in scores)
+    pr, rc, f1 = prf(tp, fp, fn)
+    m["schema_link"] = {"tp": tp, "fp": fp, "fn": fn, "precision": pr, "recall": rc, "f1": f1}
+    m["schema_link_f1_micro"] = f1
+    m["selects_all_gold_tables"] = sum(1 for s in scores if set(s.gold_tables) <= set(s.pred_tables))
+    m["no_spurious_tables"] = sum(1 for s in scores if set(s.pred_tables) <= set(s.gold_tables))
+    m["correct"] = [1 if s.ex else 0 for s in scored]
+    m["idxs_scored"] = [s.idx for s in scored]
+    valid_scores = [s for s in scores if s.valid]
+    m["token_f1_valid_only"] = mean([s.token_f1 for s in valid_scores])
+    m["edit_similarity_valid_only"] = mean([s.edit_sim for s in valid_scores])
+    m["length_mean_pred"] = mean([len(s.pred) for s in scores])
+    m["length_mean_gold"] = mean([len(s.gold) for s in scores])
+    m["complexity"] = {
+        c: {
+            "n": sum(1 for s in scores if s.complexity == c),
+            "execution_accuracy": mean([1 if s.ex else 0 for s in scores if s.complexity == c and s.ex is not None]),
+            "valid_rate": mean([1 if s.valid else 0 for s in scores if s.complexity == c]),
+            "exact_match": mean([1 if s.em else 0 for s in scores if s.complexity == c]),
+        }
+        for c in sorted({s.complexity for s in scores})
+    }
+    m["per_clause"] = {}
+    for key, label in CLAUSES:
+        gold_pos = [s for s in scores if s.gold_flags.get(key)]
+        tp_c = sum(1 for s in scores if s.gold_flags.get(key) and s.pred_flags.get(key))
+        fp_c = sum(1 for s in scores if s.pred_flags.get(key) and not s.gold_flags.get(key))
+        fn_c = sum(1 for s in scores if s.gold_flags.get(key) and not s.pred_flags.get(key))
+        tn_c = n - tp_c - fp_c - fn_c
+        if tp_c + fp_c + fn_c + tn_c == 0:
+            continue
+        p_c, r_c, f1_c = prf(tp_c, fp_c, fn_c)
+        m["per_clause"][key] = {
+            "label": label,
+            "gold_n": len(gold_pos),
+            "pred_n": sum(1 for s in scores if s.pred_flags.get(key)),
+            "tp": tp_c, "fp": fp_c, "fn": fn_c, "tn": tn_c,
+            "precision": p_c, "recall": r_c, "f1": f1_c,
+            "presence_accuracy": safe_div(tp_c + tn_c, n),
+            "accuracy_when_required": mean([1 if s.ex else 0 for s in gold_pos if s.ex is not None]),
+        }
+    m["signature_matrix"] = confusion_matrix([s.gold_sig for s in scores], [s.pred_sig for s in scores])
+    m["signature_matrix"]["krippendorff_alpha"] = krippendorff_alpha([[s.gold_sig, s.pred_sig] for s in scores])
+    m["outcome_matrix"] = confusion_matrix([s.outcome for s in scores], [s.outcome for s in scores], OUTCOME_LABELS)
+    return m
+
+
+def pool_metrics(per: dict, n_boot: int = 2000) -> dict:
+    """Pool the per-set metric blocks of one system into a single block."""
+    sets = list(per)
+    out: dict = {}
+    counts = ["n", "n_valid", "n_exact", "n_scorable", "n_exec", "recovered_by_execution",
+              "selects_all_gold_tables", "no_spurious_tables"]
+    rates = ["valid_rate", "exact_match", "execution_accuracy", "execution_accuracy_strict", "error_rate",
+             "mean_confidence", "mean_agree_gold", "token_f1", "token_f1_no_literals", "edit_similarity",
+             "clause_jaccard", "component_f1", "schema_link_f1", "schema_link_precision", "schema_link_recall",
+             "token_f1_valid_only", "edit_similarity_valid_only"]
+    for key in per[sets[0]]:
+        vals = [per[st][key] for st in sets]
+        if key in counts:
+            out[key] = sum(v for v in vals if isinstance(v, (int, float)))
+        elif key in rates:
+            w_key = "n_scorable" if key in ("execution_accuracy", "error_rate") else "n"
+            weights = [max(1, per[st][w_key]) for st in sets]
+            out[key] = safe_div(sum(per[st][key] * w for st, w in zip(sets, weights)), sum(weights))
+        elif key.endswith("_ci"):
+            base = key[:-3]
+            w_key = "n_scorable" if base == "execution_accuracy" else "n"
+            weights = [max(1, per[st][w_key]) for st in sets]
+            total = sum(weights)
+            out[key] = (
+                safe_div(sum(per[st][key][0] * w for st, w in zip(sets, weights)), total),
+                safe_div(sum(per[st][key][1] * w for st, w in zip(sets, weights)), total),
+            )
+        elif key == "outcomes":
+            out[key] = {k: sum(per[st][key][k] for st in sets) for k in OUTCOME_LABELS}
+        elif key == "error_types":
+            agg: Counter = Counter()
+            for st in sets:
+                agg.update(per[st][key])
+            out[key] = dict(agg)
+        elif key == "schema_link":
+            tp = sum(per[st][key]["tp"] for st in sets)
+            fp = sum(per[st][key]["fp"] for st in sets)
+            fn = sum(per[st][key]["fn"] for st in sets)
+            pr, rc, f1 = prf(tp, fp, fn)
+            out[key] = {"tp": tp, "fp": fp, "fn": fn, "precision": pr, "recall": rc, "f1": f1}
+        elif key == "complexity":
+            buckets: dict = defaultdict(lambda: {"n": 0, "execution_accuracy": 0.0, "valid_rate": 0.0, "exact_match": 0.0})
+            for st in sets:
+                for c, row in per[st][key].items():
+                    buckets[c]["n"] += row["n"]
+                    for f in ("execution_accuracy", "valid_rate", "exact_match"):
+                        buckets[c][f] += row[f] * row["n"]
+            for row in buckets.values():
+                for f in ("execution_accuracy", "valid_rate", "exact_match"):
+                    row[f] = safe_div(row[f], row["n"])
+            out[key] = dict(buckets)
+        elif key == "per_clause":
+            merged: dict = {}
+            for st in sets:
+                for c, row in per[st][key].items():
+                    acc = merged.setdefault(
+                        c, {"label": row["label"], "gold_n": 0, "pred_n": 0, "tp": 0, "fp": 0, "fn": 0, "tn": 0}
+                    )
+                    for f in ("gold_n", "pred_n", "tp", "fp", "fn", "tn"):
+                        acc[f] += row[f]
+            for row in merged.values():
+                row["precision"], row["recall"], row["f1"] = prf(row["tp"], row["fp"], row["fn"])
+                total = row["tp"] + row["fp"] + row["fn"] + row["tn"]
+                row["presence_accuracy"] = safe_div(row["tp"] + row["tn"], total)
+                row["accuracy_when_required"] = mean(
+                    [per[st][key][c]["accuracy_when_required"] for st in sets if c in per[st][key]]
+                )
+            out[key] = merged
+        elif key == "correct":
+            out[key] = flatten([per[st][key] for st in sets])
+        elif key in ("idxs_scored", "signature_matrix", "outcome_matrix"):
+            continue
+        else:
+            out[key] = vals[0] if all(v == vals[0] for v in vals) else None
+    out["multi_set"] = True
+    out["sets"] = sets
+    out["per_set"] = {st: per[st] for st in sets}
+    return out
+
+
+def heatmap(ax, matrix, xticklabels, yticklabels, title="", xlabel="", ylabel="", cmap="Blues",
+            fmt="{:.0f}", vmin=None, vmax=None, cbar_label=None, annotate=True) -> None:
+    """Consistent annotated heatmap used by every confusion / agreement matrix."""
+    require_plotting()
+    arr = np.array([[0.0 if v is None else float(v) for v in row] for row in matrix], dtype=float)
+    image = ax.imshow(arr, cmap=cmap, aspect="auto", vmin=vmin, vmax=vmax)
+    ax.set_xticks(range(len(xticklabels)))
+    ax.set_xticklabels(xticklabels, rotation=30, ha="right", fontsize=8)
+    ax.set_yticks(range(len(yticklabels)))
+    ax.set_yticklabels(yticklabels, fontsize=8)
+    if title:
+        ax.set_title(title, fontsize=10)
+    if xlabel:
+        ax.set_xlabel(xlabel, fontsize=9)
+    if ylabel:
+        ax.set_ylabel(ylabel, fontsize=9)
+    ax.grid(False)
+    if annotate and arr.size:
+        mid = (float(np.nanmax(arr)) + float(np.nanmin(arr))) / 2
+        for i in range(arr.shape[0]):
+            for j in range(arr.shape[1]):
+                ax.text(j, i, fmt.format(arr[i, j]), ha="center", va="center", fontsize=7,
+                        color="white" if arr[i, j] > mid else "#222222")
+    if cbar_label:
+        cb = plt.colorbar(image, ax=ax, fraction=0.046, pad=0.04)
+        cb.set_label(cbar_label, fontsize=8)
+
+
+def binary_from(ctx: Ctx, pair: tuple, kind: str) -> list:
+    """Per-item binary vector for one system: 'valid', 'exact', 'exec' (None = not scorable)."""
+    out = []
+    for s in ctx.scores.get(pair, []):
+        if kind == "valid":
+            out.append(int(s.valid))
+        elif kind == "exact":
+            out.append(int(s.em))
+        elif kind == "exec":
+            out.append(None if s.ex is None else int(s.ex))
+    return out
+
+
+def agreement_panel(ctx: Ctx, set_name: str) -> dict:
+    """How much do the systems agree with each other, outcome by outcome?"""
+    systems = ctx.systems_in(set_name)
+    if len(systems) < 2:
+        return {}
+    per_system = {s: {x.idx: x.outcome for x in ctx.scores[(set_name, s)]} for s in systems}
+    idxs = sorted(set.intersection(*[set(v) for v in per_system.values()]))
+    ratings = [[per_system[s][i] for s in systems] for i in idxs]
+    panel = {
+        "n": len(idxs),
+        "fleiss_kappa": fleiss_kappa(ratings, OUTCOME_LABELS),
+        "krippendorff_alpha": krippendorff_alpha(ratings),
+        "systems": systems,
+        "pairs": {},
+        "per_system_distribution": {
+            s: {k: sum(1 for i in idxs if per_system[s][i] == k) for k in OUTCOME_LABELS} for s in systems
+        },
+    }
+    for i, a in enumerate(systems):
+        for b in systems[i + 1:]:
+            va = [per_system[a][k] for k in idxs]
+            vb = [per_system[b][k] for k in idxs]
+            panel["pairs"][f"{a}|{b}"] = {
+                "n": len(idxs),
+                "percent_agreement": percent_agreement(va, vb),
+                "cohen_kappa": cohen_kappa(va, vb),
+                "cohen_kappa_linear": cohen_kappa(va, vb, "linear"),
+                "cohen_kappa_quadratic": cohen_kappa(va, vb, "quadratic"),
+                "pabak": pabak(va, vb),
+                "gwet_ac1": gwet_ac1(va, vb),
+                "fleiss_kappa": fleiss_kappa([[x, y] for x, y in zip(va, vb)], OUTCOME_LABELS),
+                "krippendorff_alpha": krippendorff_alpha([[x, y] for x, y in zip(va, vb)]),
+                "confusion": pairwise_outcome_matrix(ctx, set_name, a, b)["matrix"],
+            }
+    return panel
+
+
+KINDS = [
+    ("valid", "valid SQL", "produces executable SQL"),
+    ("exact", "exact match", "textually identical to the gold query"),
+    ("exec", "execution accuracy", "returns the gold result set"),
+]
+
+
+def binary_confusions(ctx: Ctx, set_name: str) -> dict:
+    """All pairwise 2x2 tables per measure - the 'verdict matrix' source data."""
+    systems = ctx.systems_in(set_name)
+    out: dict = {}
+    for kind, label, desc in KINDS:
+        table = {}
+        for i, a in enumerate(systems):
+            for b in systems[i + 1:]:
+                va, vb = binary_from(ctx, (set_name, a), kind), binary_from(ctx, (set_name, b), kind)
+                pairs = [(x, y) for x, y in zip(va, vb) if x is not None and y is not None]
+                if not pairs:
+                    continue
+                table[f"{a}|{b}"] = {
+                    "label": label,
+                    "description": desc,
+                    **cm2([x for x, _ in pairs], [y for _, y in pairs]),
+                    "rates": {a: mean([x for x, _ in pairs]), b: mean([y for _, y in pairs])},
+                    "mc_nemar": mcnemar([x for x, _ in pairs], [y for _, y in pairs]),
+                }
+        out[kind] = table
+    return out
+
+
+def verdict_matrix(ctx: Ctx, set_name: str) -> dict:
+    """Chi-square / normalised mutual information between every pair of systems."""
+    systems = ctx.systems_in(set_name)
+    labels_matrix, stats = [], []
+    for a in systems:
+        row = []
+        for b in systems:
+            if a == b:
+                row.append(1.0)
+                continue
+            va = [x.outcome for x in ctx.scores.get((set_name, a), [])]
+            vb = [x.outcome for x in ctx.scores.get((set_name, b), [])]
+            pairs = [(x, y) for x, y in zip(va, vb)]
+            labels_a = [x for x, _ in pairs]
+            labels_b = [y for _, y in pairs]
+            n = len(pairs)
+            if not n:
+                row.append(0.0)
+                continue
+            chi2 = 0.0
+            for ca in set(labels_a):
+                for cb in set(labels_b):
+                    o = sum(1 for x, y in pairs if x == ca and y == cb)
+                    if not o:
+                        continue
+                    exp = sum(1 for x in labels_a if x == ca) * sum(1 for y in labels_b if y == cb) / n
+                    chi2 += (o - exp) ** 2 / exp
+            denom = n * max(1, min(len(set(labels_a)), len(set(labels_b))) - 1)
+            row.append(min(1.0, chi2 / denom) if denom else 0.0)
+        stats.append(row)
+    return {"systems": systems, "matrix": stats, "form": "Cramer's V (normalised chi-square)"}
+
+
+def significance_table(ctx: Ctx, set_name: str) -> dict:
+    """Paired McNemar + bootstrap deltas per pair and measure, Holm-corrected."""
+    systems = ctx.systems_in(set_name)
+    rows, pvals = {}, {}
+    for kind, label, _ in KINDS:
+        for i, a in enumerate(systems):
+            for b in systems[i + 1:]:
+                va, vb = binary_from(ctx, (set_name, a), kind), binary_from(ctx, (set_name, b), kind)
+                mc = mcnemar(va, vb)
+                boot = paired_bootstrap_delta(va, vb, n_boot=1000)
+                key = f"{kind}:{a}|{b}"
+                rows[key] = {
+                    "measure": label,
+                    "a": a, "b": b,
+                    "n": mc["n_pairs"],
+                    "acc_a": mean([x for x in va if x is not None]),
+                    "acc_b": mean([x for x in vb if x is not None]),
+                    "delta": mc["a_only_correct"] - mc["b_only_correct"],
+                    "delta_rate": boot["delta"],
+                    "delta_ci": (boot["lo"], boot["hi"]),
+                    "a_only_correct": mc["a_only_correct"],
+                    "b_only_correct": mc["b_only_correct"],
+                    "exact_p": mc["exact_p"],
+                    "chi2_p": mc["chi2_p"],
+                    "odds_ratio": mc["odds_ratio"],
+                }
+                pvals[key] = mc["exact_p"]
+    adjusted = holm_bonferroni(pvals)
+    for key, p in adjusted.items():
+        rows[key]["holm_p"] = p
+        rows[key]["significant_05_holm"] = bool(p < 0.05)
+    return rows
+
+def build_analysis(args, paths: RunPaths, items: dict, confidence=None, self_consistency=None, robustness=None) -> Ctx:
+    """Score everything, aggregate, compute agreement/verdict tables and prepare figure data."""
+    ctx = Ctx(paths=paths, items=items, args=args)
+    ctx.confidence = confidence or json_load(paths.eval_dir / "confidence.json", {}) or {}
+    ctx.self_consistency = self_consistency or json_load(paths.eval_dir / "self_consistency.json", {}) or {}
+    ctx.robustness = robustness or json_load(paths.eval_dir / "robustness.json", {}) or {}
+
+    conf_map, sc_map = {}, {}
+    for set_name, systems in ctx.confidence.items():
+        for system, entry in (systems or {}).items():
+            for row in entry.get("rows", []):
+                conf_map[(set_name, system, row["idx"])] = row
+    for set_name, systems in ctx.self_consistency.items():
+        for system, entry in (systems or {}).items():
+            for row in entry.get("rows", []):
+                sc_map[(set_name, system, row["idx"])] = row
+
+    score_all(ctx, conf_map, sc_map)
+    for set_name in ctx.sets_in():
+        ctx.metrics[set_name] = {}
+        for system in ctx.systems_in(set_name):
+            ctx.metrics[set_name][system] = summarise_scores(ctx.scores[(set_name, system)], n_boot=args.n_boot)
+            ctx.complexity_rows[(set_name, system)] = [
+                {"complexity": s.complexity, "exec": "" if s.ex is None else int(s.ex), "valid": int(s.valid)}
+                for s in ctx.scores[(set_name, system)]
+            ]
+        ctx.metrics[set_name]["agreement"] = agreement_panel(ctx, set_name)
+        ctx.metrics[set_name]["binary"] = binary_confusions(ctx, set_name)
+        ctx.metrics[set_name]["significance"] = significance_table(ctx, set_name)
+        ctx.metrics[set_name]["verdict"] = verdict_matrix(ctx, set_name)
+
+    for system in SYSTEMS:
+        per = {st: ctx.metrics[st][system] for st in ctx.sets_in() if system in ctx.metrics.get(st, {})}
+        if per:
+            ctx.pooled[system] = pool_metrics(per, n_boot=args.n_boot)
+    if "agreement" in ctx.metrics.get("in_dist", {}):
+        pass
+    return ctx
+
+
+def stage_figures(args) -> None:
+    """Default stage: every CPU metric, table and figure from the cached run."""
+    require_plotting()
+    t0 = time.time()
+    paths = load_run(args)
+    paths.figures_dir.mkdir(parents=True, exist_ok=True)
+    paths.tables_dir.mkdir(parents=True, exist_ok=True)
+    items = resolve_items(args, paths)
+    if not items:
+        sys.exit("No evaluation items available - cannot score anything.")
+    ctx = build_analysis(args, paths, items)
+    if not ctx.scores:
+        sys.exit("Nothing was scored: the cached predictions do not match the evaluation items.")
+
+    rule("metrics")
+    for set_name in ctx.sets_in():
+        for system in ctx.systems_in(set_name):
+            m = ctx.metrics[set_name][system]
+            log(
+                f"{set_name:9s} {system:14s} n={m['n']:4d} valid={pct(m['valid_rate'])} "
+                f"EM={pct(m['exact_match'])} EX={pct(m['execution_accuracy'])} "
+                f"F1={m['token_f1']:.3f} edit={m['edit_similarity']:.3f} linkF1={m['schema_link_f1']:.3f}"
+            )
+    if ctx.pooled:
+        rule("pooled")
+        for system, m in ctx.pooled.items():
+            log(f"{system:14s} EX={pct(m['execution_accuracy'])} EM={pct(m['exact_match'])} F1={m['token_f1']:.3f}")
+
+    write_metrics_json(ctx)
+    write_item_csv(ctx)
+    rule("tables")
+    run_table_builders(ctx)
+    rule("figures")
+    run_figure_builders(ctx)
+    rule("report")
+    render_report(ctx)
+    if args.pack:
+        stage_pack(args, paths)
+    rule()
+    log(f"done in {human_time(time.time() - t0)} -> {paths.eval_dir}")
+
+
+def stage_pack(args, paths: RunPaths | None = None) -> None:
+    """Zip the whole eval directory so it can be downloaded / attached to the report."""
+    paths = paths or load_run(args)
+    target = paths.out / f"{paths.out.name or 'qwerysmith'}_eval.zip"
+    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path in sorted(paths.eval_dir.rglob("*")):
+            if path.is_file():
+                zf.write(path, path.relative_to(paths.eval_dir.parent))
+    log(f"packed {target} ({target.stat().st_size / 1e6:.2f} MB)")
+
+
+# @@GPU3@@
+
+# @@GPU4@@
+
+# @@SECTION_GPU@@
+
+# @@SECTION_CLI@@
