@@ -92,15 +92,25 @@ In **QwerySmith 1.0**, the model was trained exclusively on 10,000 rows of `b-mc
 
 ---
 
+---
+
 ## ⚡ Published Models on Hugging Face
 
-QwerySmith 1.0 is published in three formats for different deployment scenarios:
+All models are published in three optimized formats to support production, edge, and researcher workflows:
 
+### QwerySmith 1.1 (Recommended)
 | Format | Repository | Size | Ideal Use Case |
 |---|---|---|---|
-| **LoRA Adapter** | [`Cyrax321/QwerySmith-1.0`](https://huggingface.co/Cyrax321/QwerySmith-1.0) | 132 MB | Lightweight fine-tuning weights for Unsloth / PEFT |
-| **Merged 16-Bit** | [`Cyrax321/QwerySmith-1.0-Merged`](https://huggingface.co/Cyrax321/QwerySmith-1.0-Merged) | 8.06 GB | Standalone deployment via vLLM, TGI, or Transformers |
-| **Quantized GGUF** | [`Cyrax321/QwerySmith-1.0-GGUF`](https://huggingface.co/Cyrax321/QwerySmith-1.0-GGUF) | 2.5 GB | Local CPU/GPU inference via `llama.cpp` or Ollama |
+| **LoRA Adapter** | [`Cyrax321/QwerySmith-1.1`](https://huggingface.co/Cyrax321/QwerySmith-1.1) | ~132 MB | Fast fine-tuning & inference via Unsloth / PEFT |
+| **Merged 16-Bit** | [`Cyrax321/QwerySmith-1.1-Merged`](https://huggingface.co/Cyrax321/QwerySmith-1.1-Merged) | ~8.06 GB | Standalone deployment via vLLM, TGI, or Hugging Face Pipelines |
+| **Quantized GGUF** | [`Cyrax321/QwerySmith-1.1-GGUF`](https://huggingface.co/Cyrax321/QwerySmith-1.1-GGUF) | ~2.5 GB | Ultra-fast local execution with Ollama or `llama.cpp` |
+
+### QwerySmith 1.0 (Baseline)
+| Format | Repository | Size | Ideal Use Case |
+|---|---|---|---|
+| **LoRA Adapter** | [`Cyrax321/QwerySmith-1.0`](https://huggingface.co/Cyrax321/QwerySmith-1.0) | ~132 MB | Legacy baseline adapter |
+| **Merged 16-Bit** | [`Cyrax321/QwerySmith-1.0-Merged`](https://huggingface.co/Cyrax321/QwerySmith-1.0-Merged) | ~8.06 GB | Standalone v1.0 checkpoint |
+| **Quantized GGUF** | [`Cyrax321/QwerySmith-1.0-GGUF`](https://huggingface.co/Cyrax321/QwerySmith-1.0-GGUF) | ~2.5 GB | Local baseline GGUF |
 
 Run locally with Ollama:
 ```bash
