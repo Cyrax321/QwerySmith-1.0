@@ -1025,3 +1025,318 @@ def confusion_matrix(y_true: Sequence[str], y_pred: Sequence[str], labels: Seque
     }
 
 # --------------------------------------------------------------------------
+# 4. Statistics: chance-corrected agreement, tests, resampling, curve metrics
+# --------------------------------------------------------------------------
+def _label_order(labels: Sequence[str]) -> list[str]:
+    return sorted(set(labels))
+
+
+def cohen_kappa(a: Sequence[str], b: Sequence[str], weights: str = "none") -> float:
+    """Cohen's kappa with optional linear/quadratic weights (matches sklearn)."""
+    pairs = list(zip(a, b))
+    if not pairs:
+        return 0.0
+    labels = _label_order([x for p in pairs for x in p])
+    idx = {lab: i for i, lab in enumerate(labels)}
+    k = len(labels)
+    n = len(pairs)
+    obs = [[0] * k for _ in range(k)]
+    for x, y in pairs:
+        obs[idx[x]][idx[y]] += 1
+    row = [sum(r) for r in obs]
+    col = [sum(obs[i][j] for i in range(k)) for j in range(k)]
+    if weights == "none":
+        w = [[0 if i == j else 1 for j in range(k)] for i in range(k)]
+    else:
+        w = [
+            [(abs(i - j) / (k - 1)) ** (1 if weights == "linear" else 2) if k > 1 else 0 for j in range(k)]
+            for i in range(k)
+        ]
+    p_obs = sum(w[i][j] * obs[i][j] for i in range(k) for j in range(k)) / n
+    p_exp = sum(w[i][j] * row[i] * col[j] for i in range(k) for j in range(k)) / (n * n)
+    if p_exp == 0:
+        return 1.0 if p_obs == 0 else 0.0
+    return 1.0 - p_obs / p_exp
+
+
+def percent_agreement(a: Sequence[str], b: Sequence[str]) -> float:
+    pairs = list(zip(a, b))
+    return safe_div(sum(1 for x, y in pairs if x == y), len(pairs))
+
+
+def pabak(a: Sequence[str], b: Sequence[str]) -> float:
+    """Prevalence-adjusted bias-adjusted kappa."""
+    return max(-1.0, min(1.0, 2 * percent_agreement(a, b) - 1))
+
+
+def gwet_ac1(a: Sequence[str], b: Sequence[str]) -> float:
+    """Gwet's AC1: agreement coefficient that stays stable under class imbalance."""
+    pairs = list(zip(a, b))
+    if not pairs:
+        return 0.0
+    n = len(pairs)
+    labels = _label_order([x for p in pairs for x in p])
+    p_g = {}
+    for lab in labels:
+        p_g[lab] = sum(1 for p in pairs for x in p if x == lab) / (2 * n)
+    p_e = sum(p * (1 - p) for p in p_g.values())
+    po = percent_agreement(a, b)
+    if p_e == 0:
+        return 1.0 if po == 1 else 0.0
+    return (po - p_e) / (1 - p_e)
+
+
+def fleiss_kappa(ratings: Sequence[Sequence[str]], labels: Sequence[str] | None = None) -> float:
+    """Fleiss' kappa over items x raters (raters = the systems being compared)."""
+    rows = [r for r in ratings if r]
+    if not rows:
+        return 0.0
+    labels = list(labels) if labels else _label_order([x for r in rows for x in r])
+    idx = {lab: i for i, lab in enumerate(labels)}
+    k = len(labels)
+    n = len(rows)
+    counts = []
+    for r in rows:
+        cnt = [0] * k
+        for x in r:
+            if x in idx:
+                cnt[idx[x]] += 1
+        counts.append(cnt)
+    m = mean([sum(c) for c in counts])
+    if m < 2:
+        return 0.0
+    p_i = safe_div(sum(sum(c * c for c in cnt) for cnt in counts) - n * m, n * m * (m - 1))
+    p_j = [safe_div(sum(cnt[j] for cnt in counts), n * m) for j in range(k)]
+    p_e = sum(p * p for p in p_j)
+    if p_e >= 1:
+        return 1.0 if p_i >= 1 else 0.0
+    return (p_i - p_e) / (1 - p_e)
+
+
+def krippendorff_alpha(ratings: Sequence[Sequence[str]]) -> float:
+    """Krippendorff's alpha for nominal data (coincidence-matrix formulation)."""
+    rows = [r for r in ratings if len(r) >= 2]
+    if not rows:
+        return 0.0
+    labels = _label_order([x for r in rows for x in r])
+    idx = {lab: i for i, lab in enumerate(labels)}
+    k = len(labels)
+    o = [[0.0] * k for _ in range(k)]
+    for r in rows:
+        m_u = len(r)
+        cnt = [0] * k
+        for x in r:
+            cnt[idx[x]] += 1
+        for c in range(k):
+            for j in range(k):
+                if c == j:
+                    o[c][j] += cnt[c] * (cnt[c] - 1) / (m_u - 1)
+                else:
+                    o[c][j] += cnt[c] * cnt[j] / (m_u - 1)
+    total = sum(sum(r) for r in o)
+    if total <= 1:
+        return 0.0
+    do = sum(o[c][j] for c in range(k) for j in range(k) if c != j) / total
+    n_c = [sum(o[c]) for c in range(k)]
+    de = safe_div(sum(n_c[c] * (total - n_c[c]) for c in range(k)), total * (total - 1))
+    if de == 0:
+        return 1.0 if do == 0 else 0.0
+    return 1.0 - do / de
+
+
+def binom_two_sided(k: int, n: int, p: float = 0.5) -> float:
+    """Exact two-sided binomial test (used by McNemar's exact test)."""
+    if n == 0:
+        return 1.0
+
+    def pmf(i: int) -> float:
+        return math.comb(n, i) * (p ** i) * ((1 - p) ** (n - i))
+
+    observed = pmf(k)
+    total = sum(pmf(i) for i in range(n + 1) if pmf(i) <= observed + 1e-12)
+    return min(1.0, total)
+
+
+def _chi2_sf_1df(x: float) -> float:
+    """Survival function of a chi-square distribution with 1 degree of freedom."""
+    return 1.0 if x <= 0 else math.erfc(math.sqrt(x / 2.0))
+
+
+def mcnemar(a_correct: Sequence[bool | None], b_correct: Sequence[bool | None]) -> dict:
+    """Paired comparison of two systems on exactly the same items."""
+    pairs = [(bool(x), bool(y)) for x, y in zip(a_correct, b_correct) if x is not None and y is not None]
+    b = sum(1 for x, y in pairs if x and not y)
+    c = sum(1 for x, y in pairs if y and not x)
+    n = b + c
+    exact = binom_two_sided(min(b, c), n) if n else 1.0
+    chi2 = safe_div((abs(b - c) - 1) ** 2, n)
+    return {
+        "n_pairs": len(pairs),
+        "a_only_correct": b,
+        "b_only_correct": c,
+        "ties_correct": sum(1 for x, y in pairs if x and y),
+        "ties_wrong": sum(1 for x, y in pairs if not x and not y),
+        "exact_p": exact,
+        "chi2": chi2,
+        "chi2_p": _chi2_sf_1df(chi2) if n else 1.0,
+        "odds_ratio": safe_div(b, c, default=float("inf") if b else 0.0),
+        "significant_05": bool(exact < 0.05) if n else False,
+    }
+
+
+def holm_bonferroni(pvals: dict) -> dict:
+    """Holm-Bonferroni adjusted p-values, preserving the input keys."""
+    items = sorted(((k, v) for k, v in pvals.items() if v is not None), key=lambda kv: kv[1])
+    m = len(items)
+    out, running = {}, 0.0
+    for i, (k, v) in enumerate(items):
+        adj = min(1.0, max(running, (m - i) * v))
+        running = adj
+        out[k] = adj
+    return out
+
+
+def bootstrap_mean_ci(values: Sequence[float], n_boot: int = 2000, seed: int = SEED) -> tuple:
+    """Percentile bootstrap CI of the mean (pure Python is fast enough at these sizes)."""
+    vals = [float(v) for v in values if v is not None]
+    if len(vals) < 2:
+        return (vals[0] if vals else 0.0, vals[0] if vals else 0.0)
+    rng = random.Random(seed)
+    n = len(vals)
+    means = []
+    for _ in range(n_boot):
+        means.append(sum(vals[rng.randrange(n)] for _ in range(n)) / n)
+    means.sort()
+    return means[int(0.025 * n_boot)], means[min(n_boot - 1, int(0.975 * n_boot))]
+
+
+def paired_bootstrap_delta(a: Sequence, b: Sequence, n_boot: int = 2000, seed: int = SEED) -> dict:
+    """Bootstrap distribution of mean(a) - mean(b) over paired items."""
+    pairs = [(float(x), float(y)) for x, y in zip(a, b) if x is not None and y is not None]
+    if len(pairs) < 2:
+        return {"delta": 0.0, "lo": 0.0, "hi": 0.0, "p_two_sided": 1.0, "prob_better": 0.5, "draws": []}
+    rng = random.Random(seed)
+    n = len(pairs)
+    draws = []
+    for _ in range(n_boot):
+        total = 0.0
+        for _ in range(n):
+            i = rng.randrange(n)
+            total += pairs[i][0] - pairs[i][1]
+        draws.append(total / n)
+    draws.sort()
+    delta = mean([x - y for x, y in pairs])
+    frac_pos = safe_div(sum(1 for d in draws if d > 0), len(draws))
+    return {
+        "delta": delta,
+        "lo": draws[int(0.025 * n_boot)],
+        "hi": draws[min(n_boot - 1, int(0.975 * n_boot))],
+        "p_two_sided": min(1.0, 2 * min(frac_pos, 1 - frac_pos)),
+        "prob_better": frac_pos,
+        "draws": draws,
+    }
+
+
+def auc_roc(scores: Sequence[float], labels: Sequence[int]) -> float:
+    """AUC-ROC via the rank (Mann-Whitney) formula; ties get average ranks."""
+    pairs = [(float(s), int(y)) for s, y in zip(scores, labels) if s is not None]
+    n_pos = sum(1 for _, y in pairs if y == 1)
+    n_neg = sum(1 for _, y in pairs if y == 0)
+    if not n_pos or not n_neg:
+        return 0.0
+    ranked = sorted(enumerate(pairs), key=lambda it: it[1][0])
+    ranks = [0.0] * len(ranked)
+    i = 0
+    while i < len(ranked):
+        j = i
+        while j + 1 < len(ranked) and ranked[j + 1][1][0] == ranked[i][1][0]:
+            j += 1
+        avg_rank = (i + j) / 2.0 + 1
+        for k in range(i, j + 1):
+            ranks[k] = avg_rank
+        i = j + 1
+    rank_sum_pos = sum(ranks[k] for k, (_, (_, y)) in enumerate(ranked) if y == 1)
+    return safe_div(rank_sum_pos - n_pos * (n_pos + 1) / 2.0, n_pos * n_neg)
+
+
+def auc_pr(scores: Sequence[float], labels: Sequence[int]) -> float:
+    """Average precision, i.e. the area under the precision-recall curve."""
+    pairs = sorted([(float(s), int(y)) for s, y in zip(scores, labels) if s is not None], key=lambda p: -p[0])
+    total_pos = sum(y for _, y in pairs)
+    if not pairs or total_pos == 0:
+        return 0.0
+    tp, ap, prev_recall = 0, 0.0, 0.0
+    for i, (_, y) in enumerate(pairs, 1):
+        tp += y
+        if y == 1:
+            recall = tp / total_pos
+            ap += (recall - prev_recall) * (tp / i)
+            prev_recall = recall
+    return ap
+
+
+def calibration(y_true: Sequence[int], conf: Sequence[float], n_bins: int = 15) -> dict:
+    """Reliability-diagram data plus ECE / MCE / Brier / NLL / AUC."""
+    pairs = [(float(c), int(y)) for c, y in zip(conf, y_true) if c is not None]
+    if not pairs:
+        return {}
+    buckets: list = [[] for _ in range(n_bins)]
+    for c, y in pairs:
+        buckets[min(n_bins - 1, max(0, int(c * n_bins)))].append((c, y))
+    rows, ece, mce = [], 0.0, 0.0
+    for b, items in enumerate(buckets):
+        if not items:
+            continue
+        acc = mean([y for _, y in items])
+        avg_conf = mean([c for c, _ in items])
+        gap = abs(acc - avg_conf)
+        ece += gap * len(items) / len(pairs)
+        mce = max(mce, gap)
+        rows.append(
+            {"bin": b, "lo": b / n_bins, "hi": (b + 1) / n_bins, "n": len(items),
+             "confidence": avg_conf, "accuracy": acc, "gap": gap}
+        )
+    clipped = [min(1 - 1e-6, max(1e-6, c)) for c, _ in pairs]
+    ys = [y for _, y in pairs]
+    brier = mean([(c - y) ** 2 for c, y in zip(clipped, ys)])
+    nll = -mean([y * math.log(c) + (1 - y) * math.log(1 - c) for c, y in zip(clipped, ys)])
+    return {
+        "n": len(pairs),
+        "bins": rows,
+        "ece": ece,
+        "mce": mce,
+        "brier": brier,
+        "nll": nll,
+        "auc_roc": auc_roc([c for c, _ in pairs], ys),
+        "auc_pr": auc_pr([c for c, _ in pairs], ys),
+        "mean_confidence": mean([c for c, _ in pairs]),
+        "accuracy": mean(ys),
+    }
+
+
+def risk_coverage(y_true: Sequence[int], conf: Sequence[float], grid: int = 50) -> dict:
+    """Selective prediction: accuracy of the answers that are kept, most confident first."""
+    pairs = sorted([(float(c), int(y)) for c, y in zip(conf, y_true) if c is not None], key=lambda p: -p[0])
+    n = len(pairs)
+    if n < 2:
+        return {}
+    coverages, accuracies, risks = [], [], []
+    cum_correct = 0
+    step = max(1, n // grid)
+    for i, (_, y) in enumerate(pairs, 1):
+        cum_correct += y
+        if i % step == 0 or i == n:
+            coverages.append(i / n)
+            accuracies.append(cum_correct / i)
+            risks.append(1 - cum_correct / i)
+    at50 = accuracies[min(range(len(coverages)), key=lambda i: abs(coverages[i] - 0.5))] if coverages else 0.0
+    return {
+        "coverage": coverages,
+        "accuracy": accuracies,
+        "risk": risks,
+        "aurc": mean(risks),
+        "at_50pct": at50,
+        "n": n,
+    }
+
+# --------------------------------------------------------------------------
