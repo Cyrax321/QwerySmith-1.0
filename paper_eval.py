@@ -193,13 +193,13 @@ def wilson_ci(k: int, n: int, z: float = 1.95996) -> tuple[float, float]:
 def cohen_kappa(y1: list[str], y2: list[str]) -> float:
     """Calculates Cohen's Kappa inter-rater agreement between two systems."""
     if not y1 or len(y1) != len(y2):
-        return 1.0
+        return 0.0
     cats = sorted(list(set(y1) | set(y2)))
     cat_to_i = {c: i for i, c in enumerate(cats)}
     k = len(cats)
     n = len(y1)
     if n == 0 or k <= 1:
-        return 1.0
+        return 0.0
 
     cm = [[0] * k for _ in range(k)]
     for a, b in zip(y1, y2):
@@ -207,7 +207,9 @@ def cohen_kappa(y1: list[str], y2: list[str]) -> float:
 
     po = sum(cm[i][i] for i in range(k)) / n
     pe = sum(sum(cm[i][j] for j in range(k)) * sum(cm[j][i] for j in range(k)) for i in range(k)) / (n * n)
-    return (po - pe) / (1.0 - pe) if pe < 1.0 else 1.0
+    if pe >= 1.0:
+        return 0.0
+    return (po - pe) / (1.0 - pe)
 
 
 def calculate_mcc(tp: int, fp: int, fn: int, tn: int) -> float:
@@ -242,6 +244,29 @@ def mcnemar_test(y_a: list[bool], y_b: list[bool]) -> dict:
         "wins_B": c,
         "both_correct": both_correct,
         "both_wrong": both_wrong,
+        "total_discordant": total_discordant,
+        "odds_ratio": odds_ratio,
+        "chi2": chi2,
+        "p_value": p_val,
+        "significant": p_val < 0.05,
+    }
+
+
+def mcnemar_from_counts(b: int, c: int) -> dict:
+    """Computes McNemar test metrics directly from discordant win/loss counts."""
+    total_discordant = b + c
+    if total_discordant == 0:
+        p_val = 1.0
+    else:
+        k = min(b, c)
+        p_val = min(1.0, 2.0 * sum(math.comb(total_discordant, i) * (0.5 ** total_discordant) for i in range(k + 1)))
+
+    odds_ratio = (b / c) if c > 0 else (float("inf") if b > 0 else 1.0)
+    chi2 = ((abs(b - c) - 1) ** 2) / total_discordant if total_discordant > 0 else 0.0
+
+    return {
+        "wins_A": b,
+        "wins_B": c,
         "total_discordant": total_discordant,
         "odds_ratio": odds_ratio,
         "chi2": chi2,
@@ -379,24 +404,66 @@ def classify_failure_mode(pred: str, gold: str) -> str:
 def load_data(run_dir: Path):
     """Loads prediction records, logs, and pre-computed results from actual run files."""
     run_dir = Path(run_dir).resolve()
+    print("=" * 70)
+    print("🔍 QWERYSMITH INSTITUTIONAL EVALUATION LOADER")
     print(f"📂 Inspecting run directory: {run_dir}")
+    print("=" * 70)
 
     # 1. Load results.json if present
     results_json = {}
     for r_candidate in [run_dir / "results.json", run_dir / "eval" / "results.json"]:
         if r_candidate.exists():
-            print(f"  Loading benchmark metrics from {r_candidate.name}...")
+            print(f"  ✅ Loading benchmark metrics from {r_candidate.name}...")
             try:
                 results_json = json.loads(r_candidate.read_text(encoding="utf-8"))
                 break
             except Exception as e:
                 print(f"  ⚠️ Could not parse {r_candidate.name}: {e}")
 
-    # 2. Load train_log.json or trainer_state.json if present
+    # 2. Load results.md or REPORT.md if present
+    md_significance = {}
+    for md_candidate in [run_dir / "results.md", run_dir / "eval" / "results.md", run_dir / "REPORT.md", run_dir / "eval" / "REPORT.md"]:
+        if md_candidate.exists():
+            try:
+                md_text = md_candidate.read_text(encoding="utf-8")
+                sig_matches = re.findall(
+                    r"-\s*([a-zA-Z0-9_\-]+):\s*fine-tuned vs 3-shot base[^\n]*?:\s*(\d+)\s*wins,\s*(\d+)\s*losses",
+                    md_text,
+                    re.IGNORECASE,
+                )
+                for sname, w_str, l_str in sig_matches:
+                    w, l = int(w_str), int(l_str)
+                    md_significance[sname] = mcnemar_from_counts(w, l)
+                if md_significance:
+                    print(f"  ✅ Parsed authentic pairwise significance from {md_candidate.name} ({len(md_significance)} splits)")
+                    results_json["_significance"] = md_significance
+                if not any(not k.startswith("_") for k in results_json):
+                    table_rows = re.findall(
+                        r"\|\s*([a-zA-Z0-9_\-]+)\s*\|\s*([a-zA-Z0-9_\-]+)\s*\|\s*([\d\.]+)%\s*\|\s*([\d\.]+)%\s*\|\s*([\d\.]+)%\s*\(([\d\.]+)%\s*to\s*([\d\.]+)%\)\s*\|\s*(\d+)/(\d+)\s*\|",
+                        md_text,
+                    )
+                    for sname, sysname, valid_s, em_s, ex_s, lo_s, hi_s, scored_s, n_s in table_rows:
+                        results_json[f"{sname}/{sysname}"] = {
+                            "n": int(n_s),
+                            "valid": float(valid_s) / 100.0,
+                            "exact_match": float(em_s) / 100.0,
+                            "exact_match_ci": [float(lo_s) / 100.0, float(hi_s) / 100.0],
+                            "exec_acc": float(ex_s) / 100.0,
+                            "exec_scored": int(scored_s),
+                            "exec_ci": [float(lo_s) / 100.0, float(hi_s) / 100.0],
+                        }
+                    if any(not k.startswith("_") for k in results_json):
+                        print(f"  ✅ Parsed authentic benchmark metrics table from {md_candidate.name}")
+                if md_significance or any(not k.startswith("_") for k in results_json):
+                    break
+            except Exception as e:
+                print(f"  ⚠️ Could not parse {md_candidate.name}: {e}")
+
+    # 3. Load train_log.json or trainer_state.json if present
     train_log = []
     for t_candidate in [run_dir / "train_log.json", run_dir / "trainer" / "trainer_state.json"]:
         if t_candidate.exists():
-            print(f"  Loading training history from {t_candidate.name}...")
+            print(f"  ✅ Loading training history from {t_candidate.name}...")
             try:
                 raw_t = json.loads(t_candidate.read_text(encoding="utf-8"))
                 if isinstance(raw_t, dict) and "log_history" in raw_t:
@@ -407,32 +474,61 @@ def load_data(run_dir: Path):
             except Exception as e:
                 print(f"  ⚠️ Could not parse {t_candidate.name}: {e}")
 
-    # 3. Load queries and execution records from predictions.csv
-    csv_file = run_dir / "predictions.csv"
+    # 4. Load queries and execution records from CSV
+    csv_candidates = [
+        run_dir / "predictions.csv",
+        run_dir / "eval" / "predictions.csv",
+        run_dir / "per_item_scores.csv",
+        run_dir / "eval" / "per_item_scores.csv",
+    ]
+    if not any(c.exists() for c in csv_candidates):
+        for f in list(run_dir.glob("*.csv")) + (list((run_dir / "eval").glob("*.csv")) if (run_dir / "eval").exists() else []):
+            if f not in csv_candidates:
+                csv_candidates.append(f)
+
+    csv_file = None
+    for c in csv_candidates:
+        if c.exists() and c.is_file():
+            csv_file = c
+            break
+
     items_by_set = defaultdict(list)
 
-    if csv_file.exists():
-        print(f"  Loading queries and execution records from {csv_file.name}...")
+    if csv_file:
+        print(f"  ✅ Loading queries and execution records from {csv_file.name}...")
         with open(csv_file, mode="r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
+
+            def get_val(row_dict, *candidates):
+                for cand in candidates:
+                    if cand in row_dict and row_dict[cand] != "":
+                        return row_dict[cand]
+                cleaned = {re.sub(r"[_\-\s]", "", k).lower(): v for k, v in row_dict.items() if k}
+                for cand in candidates:
+                    c_norm = re.sub(r"[_\-\s]", "", cand).lower()
+                    if c_norm in cleaned and cleaned[c_norm] != "":
+                        return cleaned[c_norm]
+                return ""
+
             for row in reader:
-                sname = row.get("set", "default")
-                gold = clean_sql(row.get("gold", ""))
+                sname = get_val(row, "set", "split", "benchmark", "dataset") or "default"
+                gold = clean_sql(get_val(row, "gold", "gold_sql", "ground_truth", "target", "reference"))
+                question = get_val(row, "question", "prompt", "nl_question", "text", "query_prompt")
 
-                b0_pred = clean_sql(row.get("base_zeroshot_pred", ""))
-                b0_ex = parse_bool(row.get("base_zeroshot_exec_correct"))
-                b0_valid = resolve_valid(row.get("base_zeroshot_valid"), b0_pred, b0_ex)
+                b0_pred = clean_sql(get_val(row, "base_zeroshot_pred", "base_zeroshot", "zero_shot_base_pred", "b0_pred", "zeroshot_pred"))
+                b0_ex = parse_bool(get_val(row, "base_zeroshot_exec_correct", "base_zeroshot_exec", "base_zeroshot_ex", "zero_shot_base_exec_correct", "b0_exec_correct", "b0_ex", "base_zeroshot_correct"))
+                b0_valid = resolve_valid(get_val(row, "base_zeroshot_valid", "b0_valid"), b0_pred, b0_ex)
 
-                b3_pred = clean_sql(row.get("base_fewshot_pred", ""))
-                b3_ex = parse_bool(row.get("base_fewshot_exec_correct"))
-                b3_valid = resolve_valid(row.get("base_fewshot_valid"), b3_pred, b3_ex)
+                b3_pred = clean_sql(get_val(row, "base_fewshot_pred", "base_fewshot", "three_shot_base_pred", "3_shot_base_pred", "b3_pred", "fewshot_pred"))
+                b3_ex = parse_bool(get_val(row, "base_fewshot_exec_correct", "base_fewshot_exec", "base_fewshot_ex", "three_shot_base_exec_correct", "3_shot_base_exec_correct", "b3_exec_correct", "b3_ex", "base_fewshot_correct"))
+                b3_valid = resolve_valid(get_val(row, "base_fewshot_valid", "b3_valid"), b3_pred, b3_ex)
 
-                ft_pred = clean_sql(row.get("finetuned_pred", ""))
-                ft_ex = parse_bool(row.get("finetuned_exec_correct"))
-                ft_valid = resolve_valid(row.get("finetuned_valid"), ft_pred, ft_ex)
+                ft_pred = clean_sql(get_val(row, "finetuned_pred", "fine_tuned_pred", "ft_pred", "finetuned", "fine_tuned", "qwerysmith_pred", "model_pred"))
+                ft_ex = parse_bool(get_val(row, "finetuned_exec_correct", "finetuned_exec", "finetuned_ex", "fine_tuned_exec_correct", "ft_exec_correct", "ft_ex", "finetuned_correct", "qwerysmith_exec_correct"))
+                ft_valid = resolve_valid(get_val(row, "finetuned_valid", "ft_valid"), ft_pred, ft_ex)
 
                 items_by_set[sname].append({
-                    "question": row.get("question", ""),
+                    "question": question,
                     "gold": gold,
                     "complexity": classify_complexity(gold),
                     "length_bin": classify_length_bin(gold),
@@ -474,6 +570,28 @@ def load_data(run_dir: Path):
                     except Exception as e:
                         print(f"  ⚠️ Could not read {f.name}: {e}")
 
+    # Diagnostics printout
+    print(f"\n📊 --- AUTHENTIC DATA LOADING DIAGNOSTICS ---")
+    if items_by_set:
+        print(f"  Splits loaded from predictions ({len(items_by_set)} total):")
+        for s, items in items_by_set.items():
+            ft_scored = sum(1 for it in items if it.get("finetuned_exec") is not None)
+            ft_corr = sum(1 for it in items if it.get("finetuned_exec") is True)
+            b3_scored = sum(1 for it in items if it.get("base_fewshot_exec") is not None)
+            b3_corr = sum(1 for it in items if it.get("base_fewshot_exec") is True)
+            if ft_scored > 0:
+                print(f"  • {s:22s}: {len(items)} items | FT Exec: {ft_corr}/{ft_scored} ({ft_corr/ft_scored*100:.1f}%) | Base3 Exec: {b3_corr}/{b3_scored} ({b3_corr/b3_scored*100:.1f}%)")
+            else:
+                print(f"  • {s:22s}: {len(items)} items | Valid SQL only (execution correctness not in file)")
+    else:
+        print("  ⚠️ No individual query items loaded into memory.")
+
+    if results_json.get("_significance"):
+        print(f"  Authentic Pairwise Significance (FT vs 3-Shot Base):")
+        for s, mc in results_json["_significance"].items():
+            print(f"  • {s:22s}: {mc.get('wins_A', 0)} wins, {mc.get('wins_B', 0)} losses (p = {mc.get('p_value', 1.0):.4f})")
+    print("--------------------------------------------\n")
+
     return items_by_set, results_json, train_log
 
 
@@ -501,7 +619,11 @@ def analyze_dataset(items_by_set: dict, results_json: dict) -> dict:
     all_items = [it for items in items_by_set.values() for it in items if (it.get("gold") or it.get("finetuned_pred"))]
     sets = list(items_by_set.keys())
     if not sets and results_json:
-        sets = sorted(list(set(k.split("/")[0] for k in results_json.keys())))
+        sets = sorted(list(set(k.split("/")[0] for k in results_json.keys() if not k.startswith("_"))))
+    if results_json.get("_significance"):
+        for s in results_json["_significance"]:
+            if s not in sets:
+                sets.append(s)
 
     systems = ["base_zeroshot", "base_fewshot", "finetuned"]
 
@@ -721,6 +843,12 @@ def analyze_dataset(items_by_set: dict, results_json: dict) -> dict:
             mc = mcnemar_test(ft_results, base_results)
             analysis["significance"][sname] = mc
 
+    # Fallback to authentic pre-computed significance from results.md if CSV lacked paired scores
+    if results_json.get("_significance"):
+        for sname, mc in results_json["_significance"].items():
+            if sname not in analysis["significance"] or (analysis["significance"][sname].get("wins_A", 0) == 0 and analysis["significance"][sname].get("wins_B", 0) == 0):
+                analysis["significance"][sname] = mc
+
     return analysis
 
 
@@ -883,7 +1011,8 @@ def generate_figures(analysis: dict, train_log: list, out_dir: Path):
     # ----------------------------------------------------------------------
     # Figure 4: Head-to-Head Pairwise Win/Loss Comparison
     # ----------------------------------------------------------------------
-    sig_sets = [s for s in sets if s in analysis.get("significance", {})]
+    sig_candidate_order = list(dict.fromkeys(list(sets) + list(analysis.get("significance", {}).keys())))
+    sig_sets = [s for s in sig_candidate_order if s in analysis.get("significance", {})]
     if sig_sets:
         fig, ax = plt.subplots(figsize=(8.5, 5.0))
         x = np.arange(len(sig_sets))
