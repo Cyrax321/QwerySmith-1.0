@@ -1582,3 +1582,951 @@ def outcome_counts(rows: Sequence[ItemScore]) -> dict:
 
 
 # --------------------------------------------------------------------------
+# 7. Figure infrastructure
+# --------------------------------------------------------------------------
+class Fig:
+    """A single figure: accumulates one or more axes, then saves png + svg + pdf."""
+
+    def __init__(self, ctx: Ctx, key: str, title: str, caption: str, nrows: int = 1, ncols: int = 1, figsize=None,
+                 polar: bool = False):
+        require_plotting()
+        self.ctx = ctx
+        self.key = key
+        self.title = title
+        self.caption = caption
+        size = figsize or (max(6.0, 7.0 * ncols), 4.2 * nrows)
+        kw = {"subplot_kw": {"projection": "polar"}} if polar else {}
+        self.fig, self.axes = plt.subplots(nrows, ncols, figsize=size, **kw)
+        self.axes_grid = self.axes
+        self.fig.suptitle(f"{MODEL_NAME} - {title}", fontsize=12, fontweight="bold")
+
+    def ax(self, row: int = 0, col: int = 0):
+        if hasattr(self.axes_grid, "shape"):
+            arr = self.axes_grid if hasattr(self.axes_grid, "__len__") else [self.axes_grid]
+            try:
+                return arr[row][col] if len(getattr(self.axes_grid, "shape", ())) == 2 else arr[col]
+            except Exception:  # noqa: BLE001
+                return self.axes_grid
+        return self.axes_grid
+
+    def each(self):
+        if hasattr(self.axes_grid, "flat"):
+            return list(self.axes_grid.flat)
+        return [self.axes_grid]
+
+    def save(self) -> None:
+        out = self.ctx.paths.figures_dir
+        out.mkdir(parents=True, exist_ok=True)
+        self.fig.tight_layout(rect=(0, 0.03, 1, 0.96))
+        base = out / self.key
+        for ext in ("png", "svg"):
+            self.fig.savefig(f"{base}.{ext}", bbox_inches="tight")
+        plt.close(self.fig)
+        self.ctx.figures.append({"key": self.key, "title": self.title, "caption": self.caption})
+        log(f"  [fig] {self.key}.png / .svg")
+
+
+def style_axis(ax, title: str = "", xlabel: str = "", ylabel: str = "", xtick_rot: float = 0.0) -> None:
+    if title:
+        ax.set_title(title)
+    if xlabel:
+        ax.set_xlabel(xlabel)
+    if ylabel:
+        ax.set_ylabel(ylabel)
+    if xtick_rot:
+        plt.sca(ax)
+        plt.xticks(rotation=xtick_rot, ha="right" if xtick_rot else "center")
+
+
+def bar_labels(ax, bars, values, fmt="{:.1f}%", dy=0.01) -> None:
+    for bar, val in zip(bars, values):
+        if val is None:
+            continue
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + dy,
+            fmt.format(100 * val if "%" in fmt else val),
+            ha="center", va="bottom", fontsize=8,
+        )
+
+
+def heatmap(ax, matrix, row_labels, col_labels, title="", cmap="Blues", fmt="{:.0f}", vmin=None, vmax=None,
+            xlabel="", ylabel="", cbar_label="") -> None:
+    arr = np.asarray(matrix, dtype=float)
+    if arr.size and np.nanmax(arr) == np.nanmin(arr):
+        vmax = np.nanmax(arr) or 1.0
+        vmin = 0.0
+    im = ax.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax, aspect="auto")
+    ax.set_xticks(range(len(col_labels)))
+    ax.set_xticklabels(col_labels, rotation=45, ha="right", fontsize=8)
+    ax.set_yticks(range(len(row_labels)))
+    ax.set_yticklabels(row_labels, fontsize=8)
+    ax.set_title(title)
+    if xlabel:
+        ax.set_xlabel(xlabel)
+    if ylabel:
+        ax.set_ylabel(ylabel)
+    total = arr.sum() if arr.size else 0
+    for i in range(arr.shape[0]):
+        for j in range(arr.shape[1]):
+            val = arr[i, j]
+            if not arr.size or np.isnan(val):
+                continue
+            frac = safe_div(val, total)
+            txt = fmt.format(int(val)) if fmt == "{:.0f}" else fmt.format(val)
+            if frac > 0.005:
+                txt += f"\n{100 * frac:.0f}%"
+            ax.text(j, i, txt, ha="center", va="center", fontsize=7,
+                    color="white" if arr.max() and val > 0.6 * arr.max() else "black")
+    ax.grid(False)
+    if cbar_label:
+        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label=cbar_label)
+
+def compute_metrics(ctx: Ctx) -> None:
+    """Headline metrics, confusion matrices, error matrices and significance tests."""
+    for set_name in ctx.sets_in():
+        for system in ctx.systems_in(set_name):
+            rows = ctx.scores[(set_name, system)]
+            m = headline_metrics(rows)
+            m["per_clause"] = per_clause_agreement(rows)
+            m["signature_matrix"] = sig_matrix(rows)
+            m["outcome_matrix"] = {"labels": OUTCOME_LABELS, "counts": [m["outcomes"][k] for k in OUTCOME_LABELS]}
+            m["table_link_matrix"] = cm2(
+                [1 if r.gold_tables else 0 for r in rows],
+                [1 if r.pred_tables else 0 for r in rows],
+            )
+            ctx.metrics.setdefault(set_name, {})[system] = m
+            ctx.complexity_rows[(set_name, system)] = [
+                {
+                    "idx": r.idx,
+                    "complexity": r.complexity,
+                    "n_tables": len(r.cand_tables),
+                    "n_cols": len(r.cand_cols),
+                    "question_len": len(r.question.split()),
+                    "gold_len": len(r.gold.split()),
+                    "pred_len": len(r.pred.split()),
+                    "valid": int(r.valid),
+                    "em": int(r.em),
+                    "exec": "" if r.ex is None else int(r.ex),
+                    "token_f1": r.token_f1,
+                    "link_f1": r.link_f,
+                }
+                for r in rows
+            ]
+
+    for system in SYSTEMS:
+        rows = [r for set_name in ctx.sets_in() for r in ctx.scores.get((set_name, system), [])]
+        if rows:
+            ctx.pooled[system] = headline_metrics(rows)
+
+
+def _align(a: Sequence[ItemScore], b: Sequence[ItemScore]) -> list:
+    """Pair two systems' item scores by index (both cover the same items)."""
+    by_idx = {r.idx: r for r in b}
+    return [(r, by_idx[r.idx]) for r in a if r.idx in by_idx]
+
+
+def add_comparisons(ctx: Ctx) -> None:
+    """Paired significance tests and agreement coefficients between systems."""
+    store = ctx.metrics.setdefault("comparisons", {})
+    for set_name in ctx.sets_in():
+        systems = ctx.systems_in(set_name)
+        for i, sys_a in enumerate(systems):
+            for sys_b in systems[i + 1:]:
+                pairs = _align(ctx.scores[(set_name, sys_a)], ctx.scores[(set_name, sys_b)])
+                base = f"{set_name} | {sys_a} vs {sys_b}"
+                store[f"{base} (execution accuracy)"] = mcnemar([p[0].ex for p in pairs], [p[1].ex for p in pairs])
+                store[f"{base} (exact match)"] = mcnemar([p[0].em for p in pairs], [p[1].em for p in pairs])
+                store[f"{base} (valid SQL)"] = mcnemar([p[0].valid for p in pairs], [p[1].valid for p in pairs])
+                scorable = [p for p in pairs if p[0].gold_scorable]
+                boot = paired_bootstrap_delta([p[0].token_f1 for p in scorable], [p[1].token_f1 for p in scorable])
+                store[f"{base} (token F1 bootstrap)"] = {k: v for k, v in boot.items() if k != "draws"}
+                store[f"{base} (bootstrap draws)"] = boot["draws"]
+                a_out = [p[0].outcome for p in pairs]
+                b_out = [p[1].outcome for p in pairs]
+                a_bin = ["correct" if p[0].ex else "wrong" for p in pairs]
+                b_bin = ["correct" if p[1].ex else "wrong" for p in pairs]
+                store[f"{base} (agreement)"] = {
+                    "n": len(pairs),
+                    "percent_agreement_binary": percent_agreement(a_bin, b_bin),
+                    "cohen_kappa_binary": cohen_kappa(a_bin, b_bin),
+                    "gwet_ac1_binary": gwet_ac1(a_bin, b_bin),
+                    "pabak_binary": pabak(a_bin, b_bin),
+                    "cohen_kappa_outcome": cohen_kappa(a_out, b_out),
+                    "cohen_kappa_outcome_linear": cohen_kappa(a_out, b_out, "linear"),
+                    "percent_agreement_outcome": percent_agreement(a_out, b_out),
+                    "prediction_identity": mean([p[0].pred == p[1].pred for p in pairs]),
+                    "token_f1_between_systems": mean([token_f1(p[0].pred, p[1].pred) for p in pairs]),
+                }
+        if len(systems) >= 3:
+            common = set.intersection(*[{r.idx for r in ctx.scores[(set_name, s)]} for s in systems])
+            by_sys = {s: {r.idx: r for r in ctx.scores[(set_name, s)]} for s in systems}
+            ratings_outcome, ratings_binary = [], []
+            for idx in sorted(common):
+                ratings_outcome.append([by_sys[s][idx].outcome for s in systems])
+                ratings_binary.append(["correct" if by_sys[s][idx].ex else "wrong" for s in systems])
+            store[f"{set_name} | all systems (agreement)"] = {
+                "n_items_rated_by_all": len(ratings_outcome),
+                "fleiss_kappa_outcome": fleiss_kappa(ratings_outcome, OUTCOME_LABELS),
+                "fleiss_kappa_binary": fleiss_kappa(ratings_binary, ["correct", "wrong"]),
+                "krippendorff_alpha_outcome": krippendorff_alpha(ratings_outcome),
+                "krippendorff_alpha_binary": krippendorff_alpha(ratings_binary),
+                "unanimous_items": sum(1 for r in ratings_binary if len(set(r)) == 1),
+                "unanimously_correct": sum(1 for r in ratings_binary if set(r) == {"correct"}),
+                "unanimously_wrong": sum(1 for r in ratings_binary if set(r) == {"wrong"}),
+            }
+        raw = {
+            k: v["exact_p"]
+            for k, v in store.items()
+            if k.startswith(set_name) and isinstance(v, dict) and "exact_p" in v
+        }
+        for k, adj in holm_bonferroni(raw).items():
+            store[k]["exact_p_holm"] = adj
+
+
+def attach_sidecars(ctx: Ctx) -> None:
+    """Fold in the optional GPU-stage artefacts when they are present."""
+    ev = ctx.paths.eval_dir
+    ctx.confidence = json_load(ev / "confidence.json", {}) or {}
+    ctx.self_consistency = json_load(ev / "self_consistency.json", {}) or {}
+    ctx.robustness = json_load(ev / "robustness.json", {}) or {}
+    for store, kind in (
+        (ctx.confidence, "conf"),
+        (ctx.self_consistency, "sc"),
+        (ctx.robustness, "rob"),
+    ):
+        for system, payload in (store or {}).items():
+            if not isinstance(payload, dict):
+                continue
+            for set_name, recs in payload.items():
+                rows = ctx.scores.get((set_name, system))
+                if not rows or not isinstance(recs, dict):
+                    continue
+                for idx_str, rec in recs.items():
+                    try:
+                        idx = int(idx_str)
+                    except (TypeError, ValueError):
+                        continue
+                    if not (0 <= idx < len(rows)) or not isinstance(rec, dict):
+                        continue
+                    row = rows[idx]
+                    if kind == "conf":
+                        row.conf = rec.get("confidence")
+                        row.conf_extra = {k: v for k, v in rec.items() if k != "confidence"}
+                    elif kind == "sc":
+                        row.sc_pass = rec.get("pass_at_k")
+                        row.sc_majority = rec.get("majority_correct")
+                        row.sc_agree = rec.get("agreement")
+                        row.sc_latency = rec.get("seconds")
+                    else:
+                        row.conf_extra["robust"] = rec
+
+
+def pairwise_outcome_matrix(ctx: Ctx, set_name: str, sys_a: str, sys_b: str) -> dict:
+    """How does system B's answer relate to system A's answer, item by item?"""
+    pairs = _align(ctx.scores[(set_name, sys_a)], ctx.scores[(set_name, sys_b)])
+    return confusion_matrix([p[0].outcome for p in pairs], [p[1].outcome for p in pairs], OUTCOME_LABELS)
+
+
+def fixed_broken_matrix(ctx: Ctx, set_name: str, sys_a: str, sys_b: str) -> dict:
+    """Did B fix what A broke? 2x2 over execution correctness."""
+    pairs = _align(ctx.scores[(set_name, sys_a)], ctx.scores[(set_name, sys_b)])
+    y_true = ["correct" if p[0].ex else "wrong" for p in pairs]
+    y_pred = ["correct" if p[1].ex else "wrong" for p in pairs]
+    both = sum(1 for t, p in zip(y_true, y_pred) if t == "correct" and p == "correct")
+    fixed = sum(1 for t, p in zip(y_true, y_pred) if t == "wrong" and p == "correct")
+    broke = sum(1 for t, p in zip(y_true, y_pred) if t == "correct" and p == "wrong")
+    neither = sum(1 for t, p in zip(y_true, y_pred) if t == "wrong" and p == "wrong")
+    return {
+        "sys_a": sys_a,
+        "sys_b": sys_b,
+        "n": len(pairs),
+        "both_correct": both,
+        "b_fixed": fixed,
+        "b_broke": broke,
+        "neither": neither,
+        "net_gain": fixed - broke,
+        "matrix": [[both, broke], [fixed, neither]],
+    }
+
+
+# --------------------------------------------------------------------------
+# 8. Figures
+# --------------------------------------------------------------------------
+METRIC_KEYS = [
+    ("valid_rate", "valid SQL"),
+    ("exact_match", "exact match"),
+    ("execution_accuracy", "execution"),
+    ("token_f1", "token F1"),
+    ("token_f1_no_literals", "token F1 (no literals)"),
+    ("edit_similarity", "edit similarity"),
+    ("clause_jaccard", "clause Jaccard"),
+    ("component_f1", "clause F1"),
+    ("schema_link_f1", "schema-linking F1"),
+]
+
+
+def fig_accuracy_comparison(ctx: Ctx) -> None:
+    """fig01 - the headline numbers, base 0-shot / base 3-shot / fine-tuned."""
+    sets = ctx.sets_in()
+    f = Fig(
+        ctx,
+        "fig01_accuracy_comparison",
+        "Headline accuracy: valid SQL, exact match, execution accuracy",
+        "Per evaluation set. 'valid SQL' = the query parses and runs, 'exact match' = textually "
+        "identical to the gold query, 'execution' = returned exactly the gold result set. Error "
+        "bars are 95% Wilson score intervals; execution accuracy only counts items whose gold "
+        "query is itself executable and non-empty.",
+        ncols=max(1, len(sets)),
+        figsize=(6.4 * max(1, len(sets)), 4.6),
+    )
+    panels = [("valid_rate", "valid SQL"), ("exact_match", "exact match"), ("execution_accuracy", "execution")]
+    for j, set_name in enumerate(sets):
+        ax = f.ax(0, j)
+        systems = ctx.systems_in(set_name)
+        width = 0.8 / max(1, len(systems))
+        for k, system in enumerate(systems):
+            m = ctx.metrics[set_name][system]
+            xs = [i + (k - (len(systems) - 1) / 2) * width for i in range(len(panels))]
+            vals = [m[key] for key, _ in panels]
+            lo = [v - m[f"{key}_ci"][0] for v, (key, _) in zip(vals, panels)]
+            hi = [m[f"{key}_ci"][1] - v for v, (key, _) in zip(vals, panels)]
+            bars = ax.bar(xs, vals, width * 0.9, yerr=[lo, hi], capsize=3, ecolor="#444444",
+                          color=PALETTE[system], label=SYSTEM_LABEL[system])
+            for b, v in zip(bars, vals):
+                ax.text(b.get_x() + b.get_width() / 2, b.get_height() + 0.035, f"{100 * v:.1f}",
+                        ha="center", fontsize=8)
+        ax.set_xticks(range(len(panels)))
+        ax.set_xticklabels([t for _, t in panels])
+        ax.set_ylim(0, 1.14)
+        ax.yaxis.set_major_formatter(lambda v, _: f"{100 * v:.0f}%")
+        if j == 0:
+            ax.set_ylabel("percent of items")
+            ax.legend(loc="upper center", fontsize=8, ncols=len(systems))
+        n = ctx.metrics[set_name][systems[0]]["n"]
+        ax.set_title(f"{SET_LABEL.get(set_name, set_name)} (n={n}, scorable={ctx.metrics[set_name][systems[0]]['n_scorable']})")
+    f.save()
+
+
+def fig_metric_radar(ctx: Ctx) -> None:
+    """fig02 - one polygon per system over nine pooled quality dimensions."""
+    systems = ctx.all_systems
+    if len(systems) < 2:
+        return
+    f = Fig(
+        ctx,
+        "fig02_metric_radar",
+        "Quality profile across all evaluation items",
+        "Every axis is a 0-100% score pooled over both evaluation sets, so a larger polygon is "
+        "better. Exact match and execution accuracy are the strict measures; token F1, edit "
+        "similarity, clause F1 and schema-linking F1 give partial credit.",
+        figsize=(6.6, 6.0),
+        polar=True,
+    )
+    keys = METRIC_KEYS
+    angles = np.linspace(0, 2 * np.pi, len(keys), endpoint=False).tolist()
+    angles += angles[:1]
+    for system in systems:
+        m = ctx.pooled[system]
+        vals = [m.get(key, 0.0) for key, _ in keys]
+        vals += vals[:1]
+        ax = f.ax()
+        ax.plot(angles, vals, color=PALETTE[system], linewidth=2, label=SYSTEM_LABEL[system])
+        ax.fill(angles, vals, color=PALETTE[system], alpha=0.15)
+    ax = f.ax()
+    ax.set_xticks(angles[:-1])
+    ax.set_xticklabels([t for _, t in keys], fontsize=9)
+    ax.set_ylim(0, 1.0)
+    ax.set_yticks([0.25, 0.5, 0.75, 1.0])
+    ax.set_yticklabels(["25%", "50%", "75%", "100%"], fontsize=7)
+    ax.legend(loc="upper right", bbox_to_anchor=(1.28, 1.12), fontsize=8)
+    f.save()
+
+
+def fig_complexity_breakdown(ctx: Ctx) -> None:
+    """fig03 - execution accuracy by SQL task family."""
+    sets = ctx.sets_in()
+    f = Fig(
+        ctx,
+        "fig03_complexity_breakdown",
+        "Execution accuracy by query complexity",
+        "Items are bucketed by the constructs their gold query needs (filters, joins, "
+        "aggregations, sub-queries, set operations...). Buckets with fewer than 5 items are "
+        "hidden to keep the bars meaningful.",
+        ncols=max(1, len(sets)),
+        figsize=(7.6 * max(1, len(sets)), 5.0),
+    )
+    for j, set_name in enumerate(sets):
+        ax = f.ax(0, j)
+        systems = ctx.systems_in(set_name)
+        buckets: dict = defaultdict(lambda: defaultdict(list))
+        for system in systems:
+            for row in ctx.complexity_rows[(set_name, system)]:
+                if row["exec"] != "":
+                    buckets[row["complexity"]][system].append(row["exec"])
+        order = sorted(buckets, key=lambda k: -len(buckets[k][systems[0]]))
+        keep = [k for k in order if len(buckets[k][systems[0]]) >= 5]
+        order = keep or order
+        width = 0.8 / max(1, len(systems))
+        for k, system in enumerate(systems):
+            vals = [mean(buckets[c][system]) if buckets[c][system] else 0.0 for c in order]
+            xs = [i + (k - (len(systems) - 1) / 2) * width for i in range(len(order))]
+            bars = ax.bar(xs, vals, width * 0.9, color=PALETTE[system], label=SYSTEM_LABEL[system])
+            for b, v in zip(bars, vals):
+                ax.text(b.get_x() + b.get_width() / 2, b.get_height() + 0.02, f"{100 * v:.0f}%",
+                        ha="center", fontsize=7)
+        ax.set_xticks(range(len(order)))
+        ax.set_xticklabels([f"{c} (n={len(buckets[c][systems[0]])})" for c in order], rotation=25, ha="right", fontsize=8)
+        ax.set_ylim(0, 1.14)
+        ax.yaxis.set_major_formatter(lambda v, _: f"{100 * v:.0f}%")
+        ax.set_title(SET_LABEL.get(set_name, set_name))
+        if j == 0:
+            ax.set_ylabel("execution accuracy")
+            ax.legend(fontsize=8)
+    f.save()
+
+
+# @@FIG04@@
+
+def fig_outcome_distribution(ctx: Ctx) -> None:
+    """fig04 - from 'runs but wrong' to 'identical text', per system."""
+    sets = ctx.sets_in()
+    f = Fig(
+        ctx,
+        "fig04_outcome_distribution",
+        "What the answers actually are",
+        "Every generated query is classified as: correct and textually identical to the gold query, "
+        "correct but written differently (execution accuracy - exact match), executable but "
+        "returning the wrong rows, or not executable at all.",
+        ncols=max(1, len(sets)),
+        figsize=(6.6 * max(1, len(sets)), 4.8),
+    )
+    for j, set_name in enumerate(sets):
+        ax = f.ax(0, j)
+        systems = ctx.systems_in(set_name)
+        ypos = np.arange(len(systems))
+        left = np.zeros(len(systems))
+        for key in OUTCOME_LABELS:
+            vals = np.array([
+                ctx.metrics[set_name][s]["outcomes"][key] / max(1, ctx.metrics[set_name][s]["n"])
+                for s in systems
+            ])
+            ax.barh(ypos, vals, left=left, color=OUTCOME_COLOR[key], label=OUTCOME_TITLE[key], height=0.6)
+            for y, (v, l) in enumerate(zip(vals, left)):
+                if v > 0.05:
+                    ax.text(l + v / 2, y, f"{100 * v:.0f}%", ha="center", va="center", fontsize=8, color="white")
+            left += vals
+        ax.set_yticks(ypos)
+        ax.set_yticklabels([SYSTEM_LABEL[s] for s in systems], fontsize=9)
+        ax.set_xlim(0, 1)
+        ax.xaxis.set_major_formatter(lambda v, _: f"{100 * v:.0f}%")
+        ax.set_title(SET_LABEL.get(set_name, set_name))
+        ax.grid(axis="y", visible=False)
+        if j == 0:
+            ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.18), ncols=2, fontsize=8)
+    f.save()
+
+
+def fig_outcome_confusion(ctx: Ctx) -> None:
+    """fig05 - baseline versus fine-tuned: what got fixed, what got broken."""
+    sets = ctx.sets_in()
+    base = "base_zeroshot" if "base_zeroshot" in ctx.all_systems else (ctx.all_systems[0] if ctx.all_systems else None)
+    if not base or "finetuned" not in ctx.all_systems:
+        return
+    f = Fig(
+        ctx,
+        "fig05_outcome_confusion",
+        f"Outcome transitions: {SYSTEM_LABEL[base]} (rows) vs {SYSTEM_LABEL['finetuned']} (columns)",
+        "Each cell counts items by (baseline outcome, fine-tuned outcome). The interesting cells "
+        "are the off-diagonal ones: 'invalid -> correct' are the fixes, 'correct -> invalid' are "
+        "the regressions caused by fine-tuning.",
+        ncols=max(1, len(sets)),
+        figsize=(7.6 * max(1, len(sets)), 6.4),
+    )
+    lines = []
+    for j, set_name in enumerate(sets):
+        ax = f.ax(0, j)
+        fb = fixed_broken_matrix(ctx, set_name, base, "finetuned")
+        mat = pairwise_outcome_matrix(ctx, set_name, base, "finetuned")["matrix"]
+        heatmap(
+            ax, mat,
+            [OUTCOME_TITLE[k].replace(", ", " -\n") for k in OUTCOME_LABELS],
+            [OUTCOME_TITLE[k].replace(", ", " -\n") for k in OUTCOME_LABELS],
+            title=f"{SET_LABEL.get(set_name, set_name)}\nfixed: {fb['b_fixed']}   regressed: {fb['b_broke']}",
+            xlabel="fine-tuned outcome", ylabel="baseline outcome", cmap="viridis_r",
+        )
+        lines.append(f"{set_name}: fixed={fb['b_fixed']} regressed={fb['b_broke']} both_correct={fb['both_correct']} neither={fb['neither']}")
+        ctx.metrics.setdefault("fixed_broken", {})[set_name] = fb
+    ctx.notes.append("fig05 " + "; ".join(lines))
+    f.save()
+
+
+def fig_signature_confusion(ctx: Ctx) -> None:
+    """fig06 - which structural family of query the model produces for each gold family."""
+    sets = ctx.sets_in()
+    systems = [s for s in ("finetuned", "base_fewshot", "base_zeroshot") if s in ctx.all_systems]
+    if not sets or not systems:
+        return
+    system = systems[0]
+    f = Fig(
+        ctx,
+        "fig06_signature_confusion",
+        f"SQL family confusion matrix - {SYSTEM_LABEL[system]}",
+        "Rows are the structural signature of the gold query (which clauses the task needs), "
+        "columns the signature of the generated query. The diagonal means 'used exactly the "
+        "constructs the task asked for'; off-diagonal mass shows constructs added or dropped.",
+        ncols=max(1, len(sets)),
+        figsize=(8.4 * max(1, len(sets)), 7.0),
+    )
+    for j, set_name in enumerate(sets):
+        if system not in ctx.systems_in(set_name):
+            continue
+        ax = f.ax(0, j)
+        mat = ctx.metrics[set_name][system]["signature_matrix"]
+        heatmap(
+            ax, mat["matrix"], mat["labels"], mat["labels"],
+            title=f"{SET_LABEL.get(set_name, set_name)}  (family accuracy {100 * mat['accuracy']:.1f}%, macro F1 {100 * mat['macro_f1']:.1f}%)",
+            xlabel="predicted signature", ylabel="gold signature", cmap="Blues",
+        )
+    f.save()
+
+
+def fig_clause_heatmap(ctx: Ctx) -> None:
+    """fig07 - per-construct F1 for every system: where fine-tuning actually helped."""
+    sets = ctx.sets_in()
+    f = Fig(
+        ctx,
+        "fig07_clause_heatmap",
+        "Per-clause F1 (construct flagged in the prediction when the gold query needs it)",
+        "One row per SQL construct, one column per system. F1 penalises both 'the construct is "
+        "missing' and 'the construct was invented', the raw confusion counts are in "
+        "tables/clause_metrics.md.",
+        ncols=max(1, len(sets)),
+        figsize=(5.6 * max(1, len(sets)), 6.2),
+    )
+    for j, set_name in enumerate(sets):
+        ax = f.ax(0, j)
+        systems = ctx.systems_in(set_name)
+        present = [
+            (key, label) for key, label in CLAUSES
+            if any(key in ctx.metrics[set_name][s]["per_clause"] for s in systems)
+        ]
+        mat = [
+            [ctx.metrics[set_name][s]["per_clause"].get(key, {}).get("f1", 0.0) for s in systems]
+            for key, _ in present
+        ]
+        heatmap(
+            ax, mat, [label for _, label in present], [SYSTEM_LABEL[s] for s in systems],
+            title=SET_LABEL.get(set_name, set_name), cmap="YlGn", fmt="{:.2f}", vmin=0.0, vmax=1.0,
+        )
+    f.save()
+
+
+# @@FIG08@@
+
+def fig_verdict_matrix(ctx: Ctx) -> None:
+    """fig08 - raw 2x2 confusion matrices between the systems' correctness verdicts."""
+    sets = ctx.sets_in()
+    systems = ctx.all_systems
+    pairs = [(a, b) for i, a in enumerate(systems) for b in systems[i + 1:]]
+    if not pairs:
+        return
+    f = Fig(
+        ctx,
+        "fig08_confusion_between_systems",
+        "2x2 agreement matrices between the systems (execution correctness)",
+        "Rows = system A verdict, columns = system B verdict on the very same items. How much the "
+        "models agree is turned into kappa / alpha / AC1 / PABAK in fig09 and "
+        "tables/agreement_metrics.md.",
+        nrows=len(sets), ncols=max(1, len(pairs)),
+        figsize=(4.2 * max(1, len(pairs)), 4.3 * len(sets)),
+    )
+    for i, set_name in enumerate(sets):
+        for j, (a, b) in enumerate(pairs):
+            ax = f.ax(i, j)
+            if a not in ctx.systems_in(set_name) or b not in ctx.systems_in(set_name):
+                ax.axis("off")
+                continue
+            cm = pairwise_confusion(ctx, set_name, a, b, "correct")
+            mat = [[cm["tn"], cm["fp"]], [cm["fn"], cm["tp"]]]
+            res = agreement_bundle(ctx, set_name, a, b, "correct")
+            ti = "" if i == 0 else f"{SYSTEM_LABEL[a]} vs {SYSTEM_LABEL[b]} ({SET_LABEL.get(set_name, set_name)})"
+            tile_text(ax, mat, ["B wrong", "B right"], ["A wrong", "A right"],
+                      f"kappa={res['unweighted_kappa']:.2f}\naccuracy={100 * cm['accuracy']:.0f}%  n={cm['n']}", ti)
+    f.save()
+
+
+def fig_kappa_matrix(ctx: Ctx) -> None:
+    """fig09 - every chance-corrected agreement coefficient, pair by pair."""
+    sets = ctx.sets_in()
+    systems = ctx.all_systems
+    pairs = [(a, b) for i, a in enumerate(systems) for b in systems[i + 1:]]
+    if not pairs:
+        return
+    f = Fig(
+        ctx,
+        "fig09_kappa_matrix",
+        "Agreement between systems: Cohen's kappa (and friends)",
+        "Kappa interpretation (Landis & Koch): <0 worse than chance, 0-0.20 slight, 0.21-0.40 "
+        "fair, 0.41-0.60 moderate, 0.61-0.80 substantial, 0.81-1.00 almost perfect. Weighted "
+        "kappa is computed over the ordered outcome labels; PABAK and Gwet's AC1 compensate for "
+        "the class imbalance that makes plain kappa look low even at high accuracy.",
+        ncols=max(1, len(sets)),
+        figsize=(6.8 * max(1, len(sets)), 3.6 + 0.55 * len(pairs)),
+    )
+    lines = []
+    for j, set_name in enumerate(sets):
+        ax = f.ax(0, j)
+        rows, labels = [], []
+        for a, b in pairs:
+            if a not in ctx.systems_in(set_name) or b not in ctx.systems_in(set_name):
+                continue
+            r = agreement_bundle(ctx, set_name, a, b, "correct")
+            rows.append([r["unweighted_kappa"], r["linear_kappa"], r["quadratic_kappa"],
+                         r["gwet_ac1"], r["pabak"], r["krippendorff_alpha"]])
+            labels.append(f"{SYSTEM_LABEL[a]} vs\n{SYSTEM_LABEL[b]}")
+            lines.append(
+                f"{set_name} {a} vs {b}: kappa={r['unweighted_kappa']:.3f} "
+                f"acc={100 * r['percent_agreement']:.1f}% AC1={r['gwet_ac1']:.3f} "
+                f"PABAK={r['pabak']:.3f} alpha={r['krippendorff_alpha']:.3f}"
+            )
+        if not rows:
+            ax.axis("off")
+            continue
+        heatmap(
+            ax, rows, labels,
+            ["Cohen's\nkappa", "linear\nkappa", "quadratic\nkappa", "Gwet\nAC1", "PABAK", "Krippendorff\nalpha"],
+            title=SET_LABEL.get(set_name, set_name), cmap="RdYlGn", fmt="{:.2f}", vmin=0.0, vmax=1.0,
+        )
+    ctx.notes.append("fig09 " + "; ".join(lines))
+    f.save()
+
+def fig_kappa_gauge(ctx: Ctx) -> None:
+    """fig10 - the Landis-Koch interpretation of the pairwise kappa values."""
+    systems = ctx.all_systems
+    pairs = [(a, b) for i, a in enumerate(systems) for b in systems[i + 1:]]
+    rows = []
+    for set_name in ctx.sets_in():
+        for a, b in pairs:
+            if a not in ctx.systems_in(set_name) or b not in ctx.systems_in(set_name):
+                continue
+            r = agreement_bundle(ctx, set_name, a, b, "correct")
+            rows.append((f"{SET_LABEL.get(set_name, set_name)} - {SYSTEM_LABEL[a]} vs {SYSTEM_LABEL[b]}", r))
+    if not rows:
+        return
+    f = Fig(
+        ctx,
+        "fig10_kappa_gauge",
+        "Chance-corrected agreement on the Landis & Koch scale",
+        "One bar per system pair: plain Cohen's kappa (filled) with the linear- and "
+        "quadratic-weighted values marked on top. The dashed lines are the conventional "
+        "interpretation thresholds.",
+        figsize=(7.8, 0.42 * len(rows) + 3.2),
+    )
+    ax = f.ax()
+    ypos = np.arange(len(rows))
+    strength = np.array([r["unweighted_kappa"] for _, r in rows])
+    ax.barh(ypos, strength, color=[kappa_color(v) for v in strength], height=0.62, label="unweighted kappa")
+    ax.scatter([r["linear_kappa"] for _, r in rows], ypos, marker="|", s=260, color="#222222", zorder=4,
+               label="linear-weighted")
+    ax.scatter([r["quadratic_kappa"] for _, r in rows], ypos, marker="|", s=120, color="#777777", zorder=4,
+               label="quadratic-weighted")
+    bands = [(0.0, 0.20, "slight"), (0.20, 0.40, "fair"), (0.40, 0.60, "moderate"),
+             (0.60, 0.80, "substantial"), (0.80, 1.0, "almost perfect")]
+    for lo, hi, name in bands:
+        ax.axvspan(lo, hi, color="#000000", alpha=0.03, zorder=0)
+        ax.text((lo + hi) / 2, len(rows) - 0.4, name, ha="center", fontsize=7, color="#555555")
+    for lo, _, _ in bands[1:]:
+        ax.axvline(lo, color="#888888", linestyle="--", linewidth=0.8, zorder=1)
+    ax.set_yticks(ypos)
+    ax.set_yticklabels([lab for lab, _ in rows], fontsize=8)
+    ax.set_xlim(min(0.0, float(min(strength)) - 0.05), 1.0)
+    ax.set_xlabel("agreement coefficient")
+    ax.grid(axis="y", visible=False)
+    ax.legend(fontsize=8, loc="lower left")
+    f.save()
+
+
+def fig_training_curves(ctx: Ctx) -> None:
+    """fig11 - loss / learning-rate / grad-norm history of the finished run."""
+    log = ctx.paths.train_log
+    if not log:
+        return
+    f = Fig(
+        ctx,
+        "fig11_training_curves",
+        "Training history of the exported adapter",
+        "Read straight out of train_log.json inside the run directory, no re-training. The noisy "
+        "line is the per-step training loss, the dark line its running mean, the dashed line the "
+        "mean of the last 20% of the steps.",
+        ncols=3,
+        figsize=(15.0, 4.0),
+    )
+    steps = [r.get("step") for r in log]
+    names = list(log[-1].keys())
+    panels = [k for k in ("loss", "lr", "grad_norm", "epoch") if k in names][:3] or names[:3]
+    for j, key in enumerate(panels):
+        ax = f.ax(0, j)
+        ys = [r.get(key) for r in log]
+        ax.plot(steps, ys, color=PALETTE["finetuned"], linewidth=1.0, alpha=0.55, label=key)
+        if len(ys) >= 5:
+            k = max(2, len(ys) // 25)
+            ax.plot(steps, [mean(ys[max(0, i - k):i + 1]) for i in range(len(ys))],
+                    color="#333333", linewidth=1.8, label="running mean")
+        if key == "loss" and len(ys) >= 10:
+            tail = mean(ys[int(0.8 * len(ys)):])
+            ax.axhline(tail, color=WARN_C, linestyle="--", linewidth=1.2, label=f"final mean {tail:.4f}")
+        ax.set_xlabel("step")
+        ax.set_title(key)
+        ax.legend(fontsize=8)
+        if j == 0:
+            ax.set_ylabel(key)
+    f.save()
+
+def fig_throughput(ctx: Ctx) -> None:
+    """fig12 - sequence length evidence and generation cost, straight from the run."""
+    log = ctx.paths.train_log
+    lengths = {}
+    for row in log:
+        if isinstance(row.get("lengths"), dict):
+            lengths = row["lengths"]
+            break
+    f = Fig(
+        ctx,
+        "fig12_throughput_and_lengths",
+        "Training sequence lengths and generation cost",
+        "Left: the sequence-length histogram recorded by the training loop (with the longest "
+        "bucket it kept). Right: wall-clock cost of the evaluation generations, from the run "
+        "manifest. Both panels come from the finished run, nothing is re-trained.",
+        ncols=2,
+        figsize=(12.5, 4.2),
+    )
+    ax = f.ax(0, 0)
+    if lengths:
+        keys = sorted((int(k), v) for k, v in lengths.items() if k != "samples" and int(k) > 0)
+        if keys:
+            xs = [k for k, _ in keys]
+            ys = [v for _, v in keys]
+            ax.bar(range(len(xs)), ys, color=PALETTE["finetuned"], width=0.8)
+            ax.set_xticks(range(len(xs)))
+            ax.set_xticklabels([str(k) for k in xs], fontsize=8)
+            ax.set_xlabel("sequence length bucket (tokens)")
+            ax.set_ylabel("sequences")
+            ax.set_title(f"training sequences (n={lengths.get('samples', sum(ys))})")
+        else:
+            ax.axis("off")
+    else:
+        stats = ctx.paths.manifest.get("length_stats") or {}
+        if stats:
+            ax.barh(["mean", "p95", "max"], [stats.get("mean", 0), stats.get("p95", 0), stats.get("max", 0)],
+                    color=PALETTE["finetuned"])
+            ax.axvline(ctx.paths.config.get("max_len", 0), color="#333333", linestyle=":", label="max_len")
+            ax.set_xlabel("tokens")
+            ax.legend(fontsize=8)
+        else:
+            ax.text(0.5, 0.5, "no sequence-length information\nwas recorded in this run",
+                    ha="center", va="center", transform=ax.transAxes, color="#666666")
+            ax.axis("off")
+
+    ax2 = f.ax(0, 1)
+    systems = [s for s in SYSTEMS if s in ctx.pooled]
+    gen = [ctx.paths.manifest.get("systems", {}).get(s, {}) for s in systems]
+    secs = [g.get("seconds_per_sample") or g.get("seconds", 0.0) for g in gen]
+    tps = [g.get("tokens_per_second") or g.get("tok_per_s", 0.0) for g in gen]
+    if any(secs):
+        xs = np.arange(len(systems))
+        ax2.bar(xs, secs, color=[PALETTE[s] for s in systems], width=0.55)
+        for x, v in zip(xs, secs):
+            ax2.text(x, v, f"{v:.2f}s", ha="center", va="bottom", fontsize=8)
+        ax2.set_xticks(xs)
+        ax2.set_xticklabels([SYSTEM_LABEL[s].replace(" - ", "\n") for s in systems], fontsize=8)
+        ax2.set_ylabel("seconds per answer")
+        for x, v in zip(xs, tps):
+            if v:
+                ax2.text(x, max(secs) * 0.88, f"{v:.0f} tok/s", ha="center", fontsize=8, color="#333333")
+        ax2.set_title("generation speed")
+    else:
+        ax2.text(0.5, 0.5, "no timing information was recorded\nin this run",
+                 ha="center", va="center", transform=ax2.transAxes, color="#666666")
+        ax2.axis("off")
+    f.save()
+
+
+def fig_length_analysis(ctx: Ctx) -> None:
+    """fig13 - how answer quality depends on question / schema / gold-query length."""
+    sets = ctx.sets_in()
+    f = Fig(
+        ctx,
+        "fig13_length_analysis",
+        "Accuracy versus input length",
+        "Items are split into quartiles of question length, schema size and gold-query length and "
+        "the bars are execution accuracy per quartile. This shows where the model starts to "
+        "struggle: long questions, wide schemas, long target queries.",
+        nrows=max(1, len(sets)), ncols=3,
+        figsize=(15.0, 3.9 * max(1, len(sets))),
+    )
+    systems = [s for s in ("finetuned", "base_fewshot", "base_zeroshot") if s in ctx.all_systems]
+    for i, set_name in enumerate(sets):
+        items = ctx.items[set_name]
+        specs = [
+            ("question length (words)", lambda it: len(str(it.get("question", "")).split())),
+            ("schema size (characters)", lambda it: len(str(it.get("schema", "")))),
+            ("gold query length (words)", lambda it: len(str(it.get("gold", "")).split())),
+        ]
+        for j, (label, fn) in enumerate(specs):
+            ax = f.ax(i, j)
+            values = [fn(it) for it in items]
+            order = sorted(range(len(items)), key=lambda k: values[k])
+            quart = [0] * len(items)
+            for rank, idx in enumerate(order):
+                quart[idx] = min(3, int(4 * rank / max(1, len(items))))
+            for s in systems:
+                scores = ctx.scores.get((set_name, s))
+                if not scores:
+                    continue
+                vals = []
+                for q in range(4):
+                    sub = [sc.ex for sc in scores if sc.ex is not None and quart[sc.idx] == q]
+                    vals.append(mean([bool(v) for v in sub]) if sub else 0.0)
+                xs = np.arange(4) + (systems.index(s) - (len(systems) - 1) / 2) * (0.8 / len(systems))
+                ax.bar(xs, vals, 0.8 / len(systems) * 0.9, color=PALETTE[s], label=SYSTEM_LABEL[s])
+            edges = sorted(values)[:: max(1, len(items) // 4)][:4]
+            ax.set_xticks(range(4))
+            ax.set_xticklabels([f"Q{q + 1}\nfrom {edges[q] if q < len(edges) else 0:.0f}" for q in range(4)], fontsize=7)
+            ax.set_ylim(0, 1.12)
+            ax.yaxis.set_major_formatter(lambda v, _: f"{100 * v:.0f}%")
+            ax.set_title(f"{SET_LABEL.get(set_name, set_name)} - {label}")
+            if j == 0:
+                ax.set_ylabel("execution accuracy")
+                ax.legend(fontsize=7)
+    f.save()
+
+
+def fig_calibration(ctx: Ctx) -> None:
+    """fig14 - is the model's confidence trustworthy? (needs --stage confidence first)"""
+    conf = ctx.confidence
+    if not conf:
+        return
+    sets = [s for s in ctx.sets_in() if s in conf]
+    if not sets:
+        return
+    f = Fig(
+        ctx,
+        "fig14_calibration",
+        "Confidence calibration of the fine-tuned model",
+        "Left: reliability diagram - the mean token log-probability of each answer turned into a "
+        "probability, bucketed, against how often those answers were actually correct. The diagonal "
+        "is perfect calibration and the marker size is the bucket population. Right: risk-coverage "
+        "- if only the n% most confident questions are answered, how accurate are those answers? "
+        "ECE / MCE / Brier / NLL are in tables/confidence_metrics.md.",
+        ncols=2 * len(sets), figsize=(6.4 * 2 * len(sets), 4.4),
+    )
+    for i, set_name in enumerate(sets):
+        entry = conf[set_name]
+        systems = [s for s in SYSTEMS if s in entry]
+        ax = f.ax(0, 2 * i)
+        ax.plot([0, 1], [0, 1], linestyle="--", color="#999999", linewidth=1, label="perfect calibration")
+        for s in systems:
+            bins = entry[s].get("calibration", {}).get("bins", [])
+            if not bins:
+                continue
+            xs = [b["confidence"] for b in bins]
+            ys = [b["accuracy"] for b in bins]
+            ns = [b["n"] for b in bins]
+            ax.plot(xs, ys, marker="o", color=PALETTE[s],
+                    label=f"{SYSTEM_LABEL[s]} (ECE {entry[s]['calibration']['ece']:.3f})")
+            ax.scatter(xs, ys, s=[20 + 1.2 * n for n in ns], color=PALETTE[s], alpha=0.35)
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.set_xlabel("predicted confidence")
+        ax.set_ylabel("observed accuracy")
+        ax.set_title(f"Reliability - {SET_LABEL.get(set_name, set_name)}")
+        ax.legend(fontsize=7, loc="upper left")
+
+        ax2 = f.ax(0, 2 * i + 1)
+        for s in systems:
+            rc = entry[s].get("risk_coverage", {})
+            if rc:
+                ax2.plot(rc["coverage"], rc["accuracy"], color=PALETTE[s],
+                         label=f"{SYSTEM_LABEL[s]} (AURC {rc['aurc']:.3f})")
+        ax2.set_xlabel("coverage (fraction of most confident answers kept)")
+        ax2.set_ylabel("accuracy on the kept answers")
+        ax2.set_ylim(0, 1.02)
+        ax2.set_title(f"Selective accuracy - {SET_LABEL.get(set_name, set_name)}")
+        ax2.legend(fontsize=7, loc="lower left")
+    f.save()
+
+def fig_confidence_summary(ctx: Ctx) -> None:
+    """fig15 - confidence distributions, accuracy by decile and the aggregate scores."""
+    conf = ctx.confidence
+    if not conf:
+        return
+    sets = [s for s in ctx.sets_in() if s in conf]
+    systems = [s for s in SYSTEMS if any(s in conf[st] for st in sets)]
+    if not sets or not systems:
+        return
+    f = Fig(
+        ctx,
+        "fig15_confidence_summary",
+        "Confidence distributions, accuracy by confidence and summary scores",
+        "Left: distribution of the confidence score for correct (solid) and wrong (hatched) "
+        "answers - good separation means the score can be trusted to reject bad answers. Middle: "
+        "accuracy inside each confidence decile. Right: aggregate scores for 'this answer is "
+        "correct' (ROC-AUC, PR-AUC) and calibration quality (1 - ECE, higher is better).",
+        ncols=3, figsize=(15.5, 4.4),
+    )
+    ax = f.ax(0, 0)
+    for s in systems:
+        for st in sets:
+            rows = conf[st].get(s, {}).get("rows") or []
+            if not rows:
+                continue
+            ax.hist([r["conf"] for r in rows if r["correct"]], bins=15, range=(0, 1),
+                    color=PALETTE[s], alpha=0.6, label=f"{SYSTEM_LABEL[s]} correct")
+            ax.hist([r["conf"] for r in rows if not r["correct"]], bins=15, range=(0, 1),
+                    color=PALETTE[s], alpha=0.3, histtype="stepfilled", hatch="//",
+                    edgecolor="white", label=f"{SYSTEM_LABEL[s]} wrong")
+    ax.set_xlabel("confidence")
+    ax.set_ylabel("items")
+    ax.set_title("correct vs wrong answers")
+    ax.legend(fontsize=7)
+
+    ax2 = f.ax(0, 1)
+    width = 0.8 / max(1, len(systems))
+    for k, s in enumerate(systems):
+        dec = None
+        for st in sets:
+            dec = conf[st].get(s, {}).get("by_decile") or dec
+        if not dec:
+            continue
+        xs = [d["decile"] + (k - (len(systems) - 1) / 2) * width for d in dec]
+        ax2.bar(xs, [d["accuracy"] for d in dec], width * 0.9, color=PALETTE[s], label=SYSTEM_LABEL[s])
+    ax2.set_xticks(range(1, 11))
+    ax2.set_xlabel("confidence decile (1 = least confident)")
+    ax2.set_ylabel("execution accuracy")
+    ax2.set_ylim(0, 1.05)
+    ax2.set_title("accuracy rises with confidence")
+    ax2.legend(fontsize=7)
+
+    ax3 = f.ax(0, 2)
+    rows = []
+    for s in systems:
+        merged = merge_confidence([conf[st][s] for st in sets if s in conf[st]])
+        if merged:
+            rows.append((s, merged["calibration"], merged["auc"]))
+    if rows:
+        xs = np.arange(len(rows))
+        w = 0.27
+        ax3.bar(xs - w, [r[1].get("auc_roc", 0) for r in rows], w, color="#4c72b0", label="ROC-AUC")
+        ax3.bar(xs, [r[1].get("auc_pr", 0) for r in rows], w, color=ACCENT, label="PR-AUC")
+        ax3.bar(xs + w, [1 - r[1].get("ece", 0) for r in rows], w, color="#dd8452", label="1 - ECE")
+        ax3.set_xticks(xs)
+        ax3.set_xticklabels([SYSTEM_LABEL[r[0]].replace(" - ", "\n") for r in rows], fontsize=8)
+        ax3.set_ylim(0, 1.1)
+        ax3.set_title("summary scores (higher = better)")
+        ax3.legend(fontsize=8)
+        for x, r in zip(xs, rows):
+            ax3.text(x, 1.04, f"n={r[1].get('n', 0)}", ha="center", fontsize=7, color="#555555")
+    f.save()
+
+# --------------------------------------------------------------------------
