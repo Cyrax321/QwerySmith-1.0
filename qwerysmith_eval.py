@@ -2530,3 +2530,534 @@ def fig_confidence_summary(ctx: Ctx) -> None:
     f.save()
 
 # --------------------------------------------------------------------------
+# 9. Tables, manifest, report
+# --------------------------------------------------------------------------
+def fig_self_consistency(ctx: Ctx) -> None:
+    """fig16 - sampling k answers: how stable is the model, and does majority voting help?"""
+    sc = ctx.self_consistency
+    if not sc:
+        return
+    sets = [s for s in ctx.sets_in() if s in sc]
+    if not sets:
+        return
+    f = Fig(
+        ctx,
+        "fig16_self_consistency",
+        "Self-consistency: pass@k and majority voting",
+        "Each question was sampled k times at a non-zero temperature. Left: share of questions "
+        "with at least one correct sample (pass@k) and with all k samples correct. Middle: "
+        "per-question sample agreement against the probability that the majority-voted answer is "
+        "correct. Right: greedy accuracy versus majority-vote accuracy plus the mean agreement.",
+        ncols=3, figsize=(15.5, 4.4),
+    )
+    rows = []
+    for st in sets:
+        for s in SYSTEMS:
+            if s in sc[st]:
+                rows.append((st, s, sc[st][s]))
+    if not rows:
+        return
+    ax = f.ax(0, 0)
+    xs = np.arange(len(rows))
+    w = 0.38
+    ax.bar(xs - w / 2, [r[2].get("pass_at_k", 0) for r in rows], w, color=ACCENT, label="pass@k (any correct)")
+    ax.bar(xs + w / 2, [r[2].get("all_correct", 0) for r in rows], w, color="#4c72b0", label="all k correct")
+    for x, r in zip(xs, rows):
+        ax.text(x, 1.02, f"k={r[2].get('k', 0)}", ha="center", fontsize=7, color="#555555")
+    ax.set_xticks(xs)
+    ax.set_xticklabels([f"{SYSTEM_LABEL[r[1]]}\n{SET_LABEL.get(r[0], r[0])}".replace(" - ", "\n") for r in rows], fontsize=7)
+    ax.set_ylim(0, 1.1)
+    ax.set_ylabel("fraction of questions")
+    ax.set_title("coverage of k samples")
+    ax.legend(fontsize=8)
+
+    ax2 = f.ax(0, 1)
+    for st, s, entry in rows:
+        dec = entry.get("by_agreement")
+        if not dec:
+            continue
+        ax2.plot([d["agreement"] for d in dec], [d["majority_accuracy"] for d in dec],
+                 marker="o", color=PALETTE[s], label=f"{SYSTEM_LABEL[s]} - {SET_LABEL.get(st, st)}")
+    ax2.plot([0, 1], [0, 1], linestyle="--", color="#999999", linewidth=1)
+    ax2.set_xlabel("mean agreement between the k samples")
+    ax2.set_ylabel("majority-vote accuracy")
+    ax2.set_ylim(0, 1.02)
+    ax2.set_title("agreement predicts correctness")
+    ax2.legend(fontsize=7)
+
+    ax3 = f.ax(0, 2)
+    ax3.bar(xs - w, [r[2].get("greedy_accuracy", 0) for r in rows], w, color="#8c8c8c", label="greedy")
+    ax3.bar(xs, [r[2].get("majority_accuracy", 0) for r in rows], w, color=ACCENT, label="majority vote")
+    ax3.bar(xs + w, [r[2].get("mean_agreement", 0) for r in rows], w, color="#4c72b0", label="mean agreement")
+    ax3.set_xticks(xs)
+    ax3.set_xticklabels([f"{SYSTEM_LABEL[r[1]]}\n{SET_LABEL.get(r[0], r[0])}".replace(" - ", "\n") for r in rows], fontsize=7)
+    ax3.set_ylim(0, 1.08)
+    ax3.set_title("majority voting gain")
+    ax3.legend(fontsize=8)
+    f.save()
+
+
+def fig_robustness(ctx: Ctx) -> None:
+    """fig17 - accuracy when the schema presentation is perturbed (GPU stage optional)."""
+    rob = ctx.robustness
+    if not rob:
+        return
+    systems = [s for s in SYSTEMS if any(s in rob[st] for st in rob)]
+    sets = [st for st in rob if any(s in rob[st] for s in systems)]
+    if not systems or not sets:
+        return
+    f = Fig(
+        ctx,
+        "fig17_schema_robustness",
+        "Schema-presentation robustness",
+        "The same questions answered again after perturbing only the schema text: reordering the "
+        "tables, renaming the tables (the question is untouched), adding irrelevant distractor "
+        "tables, upper-casing the schema and padding it with SQL comments. The first bar is the "
+        "cached clean accuracy and the labels are the drop versus that reference.",
+        ncols=max(1, len(sets)), figsize=(8.4 * max(1, len(sets)), 4.6),
+    )
+    for j, set_name in enumerate(sets):
+        ax = f.ax(0, j)
+        order = ["clean"] + [
+            p for p in PERTURBATIONS
+            if any(p in rob[set_name][s].get("perturbations", {}) for s in systems)
+        ]
+        width = 0.8 / max(1, len(systems))
+        for k, s in enumerate(systems):
+            entry = rob[set_name].get(s)
+            if not entry:
+                continue
+            vals = [entry.get("clean_accuracy", 0.0)]
+            for p in order[1:]:
+                vals.append(entry.get("perturbations", {}).get(p, {}).get("accuracy", 0.0))
+            xs = [i + (k - (len(systems) - 1) / 2) * width for i in range(len(order))]
+            bars = ax.bar(xs, vals, width * 0.9, color=PALETTE[s], label=SYSTEM_LABEL[s])
+            for b, v, p in zip(bars[1:], vals[1:], order[1:]):
+                drop = entry.get("perturbations", {}).get(p, {}).get("drop", 0.0)
+                ax.text(b.get_x() + b.get_width() / 2, b.get_height() + 0.015, f"{100 * drop:+.0f}",
+                        ha="center", fontsize=7, color=WARN_C if drop > 0.03 else "#555555")
+        ax.set_xticks(range(len(order)))
+        ax.set_xticklabels([o.replace("_", "\n") for o in order], fontsize=8)
+        ax.set_ylim(0, 1.12)
+        ax.yaxis.set_major_formatter(lambda v, _: f"{100 * v:.0f}%")
+        ax.set_title(f"{SET_LABEL.get(set_name, set_name)} - labels: drop vs clean")
+        if j == 0:
+            ax.set_ylabel("execution accuracy")
+            ax.legend(fontsize=8)
+    f.save()
+
+
+def run_figure_builders(ctx: Ctx) -> None:
+    """Every figure builder in report order. Builders without data return immediately."""
+    builders = [
+        fig_accuracy_comparison,
+        fig_metric_radar,
+        fig_complexity_breakdown,
+        fig_outcome_distribution,
+        fig_outcome_confusion,
+        fig_signature_confusion,
+        fig_clause_heatmap,
+        fig_verdict_matrix,
+        fig_kappa_matrix,
+        fig_kappa_gauge,
+        fig_training_curves,
+        fig_throughput,
+        fig_length_analysis,
+        fig_calibration,
+        fig_confidence_summary,
+        fig_self_consistency,
+        fig_robustness,
+    ]
+    for fn in builders:
+        try:
+            fn(ctx)
+        except Exception as e:  # noqa: BLE001
+            log(f"  ! {fn.__name__} skipped: {type(e).__name__}: {e}")
+    log(f"figures: {len(ctx.figures)} written to {ctx.paths.figures_dir}")
+
+
+def md_table(headers: Sequence, rows: Sequence[Sequence], align: Sequence | None = None) -> str:
+    """Render a GitHub-flavoured markdown table (pandas-free)."""
+    align = list(align or [])
+    sep = []
+    for i in range(len(headers)):
+        a = align[i] if i < len(align) else "l"
+        sep.append({"c": ":---:", "r": "---:", "l": ":---"}.get(a, "---"))
+    out = ["| " + " | ".join(str(h) for h in headers) + " |", "| " + " | ".join(sep) + " |"]
+    for row in rows:
+        out.append("| " + " | ".join("" if v is None else str(v) for v in row) + " |")
+    return "\n".join(out) + "\n"
+
+
+def table_to(ctx: Ctx, name: str, headers: Sequence, rows: Sequence[Sequence], caption: str = "",
+             align: Sequence | None = None, note: str = "") -> None:
+    """Write one table three times: markdown (for the report), CSV (for Excel/Sheets) and LaTeX."""
+    ctx.paths.tables_dir.mkdir(parents=True, exist_ok=True)
+    md = f"### {caption or name}\n\n" if caption else ""
+    if note:
+        md += f"_{note}_\n\n"
+    md += md_table(headers, rows, align)
+    (ctx.paths.tables_dir / f"{name}.md").write_text(md)
+    with (ctx.paths.tables_dir / f"{name}.csv").open("w", newline="") as fh:
+        writer = csv.writer(fh)
+        writer.writerow([str(h) for h in headers])
+        for row in rows:
+            writer.writerow([("" if v is None else (f"{v:.6f}" if isinstance(v, float) else v)) for v in row])
+    tex = [
+        "\\begin{table}[t]\\centering",
+        f"\\caption{{{caption or name}}}",
+        "\\begin{tabular}{" + ("l" + "r" * (len(headers) - 1)) + "}",
+        "\\toprule",
+        " & ".join(str(h).replace("%", "\\%").replace("_", "\\_") for h in headers) + " \\\\",
+        "\\midrule",
+    ]
+    for row in rows:
+        cells = []
+        for v in row:
+            sv = "" if v is None else (f"{v:.4f}" if isinstance(v, float) else str(v))
+            cells.append(sv.replace("%", "\\%").replace("_", "\\_").replace("&", "\\&"))
+        tex.append(" & ".join(cells) + " \\\\")
+    tex += ["\\bottomrule", "\\end{tabular}", "\\end{table}", ""]
+    (ctx.paths.tables_dir / f"{name}.tex").write_text("\n".join(tex))
+    ctx.tables[name] = {"headers": list(headers), "rows": [list(r) for r in rows], "caption": caption, "note": note}
+
+
+def ci_cell(m: dict, key: str, nd: int = 1) -> str:
+    """'87.3% [83.0, 90.7]' - point estimate with its 95% Wilson interval."""
+    if key not in m:
+        return "n/a"
+    lo, hi = m.get(f"{key}_ci", (None, None))
+    if lo is None:
+        return pct(m[key], nd)
+    return f"{pct(m[key], nd)} [{100 * lo:.{nd}f}, {100 * hi:.{nd}f}]"
+
+
+def make_overall_table(ctx: Ctx) -> None:
+    """tables/overall_metrics - the 'how good is it' table."""
+    headers = ["system", "set", "n", "valid SQL", "exact match", "execution", "token F1", "F1 (no literals)",
+               "edit similarity", "clause F1", "schema-linking F1"]
+    rows = []
+    for set_name in ctx.sets_in():
+        for system in ctx.systems_in(set_name):
+            m = ctx.metrics[set_name][system]
+            rows.append([
+                SYSTEM_LABEL[system], SET_LABEL.get(set_name, set_name), m["n"],
+                ci_cell(m, "valid_rate"), ci_cell(m, "exact_match"), ci_cell(m, "execution_accuracy"),
+                f"{m['token_f1']:.4f}", f"{m['token_f1_no_literals']:.4f}", f"{m['edit_similarity']:.4f}",
+                f"{m['component_f1']:.4f}", f"{m['schema_link_f1']:.4f}",
+            ])
+    for system in ctx.all_systems:
+        m = ctx.pooled[system]
+        rows.append([
+            SYSTEM_LABEL[system], "both sets (pooled)", m["n"],
+            ci_cell(m, "valid_rate"), ci_cell(m, "exact_match"), ci_cell(m, "execution_accuracy"),
+            f"{m['token_f1']:.4f}", f"{m['token_f1_no_literals']:.4f}", f"{m['edit_similarity']:.4f}",
+            f"{m['component_f1']:.4f}", f"{m['schema_link_f1']:.4f}",
+        ])
+    table_to(
+        ctx, "overall_metrics", headers, rows,
+        caption="Overall metrics per system and evaluation set",
+        align=["l", "l", "r"] + ["r"] * (len(headers) - 3),
+        note="Percentages are followed by the 95% Wilson score interval. 'execution' is the "
+             "execution accuracy, i.e. the generated query returns exactly the gold result set; "
+             "only items whose gold query itself runs and returns rows are counted.",
+    )
+
+
+def make_confusion_tables(ctx: Ctx) -> None:
+    """tables/per_class_confusion + tables/outcome_matrix - every 2x2 / k x k matrix."""
+    rows = []
+    for set_name in ctx.sets_in():
+        for system in ctx.systems_in(set_name):
+            m = ctx.metrics[set_name][system]
+            cm = m["outcome_confusion"]
+            for label in cm["labels"]:
+                pc = cm["per_class"][label]
+                rows.append([
+                    SYSTEM_LABEL[system], SET_LABEL.get(set_name, set_name), OUTCOME_TITLE.get(label, label),
+                    pc["tp"], pc["fp"], pc["fn"], pc["support"],
+                    f"{pc['precision']:.3f}", f"{pc['recall']:.3f}", f"{pc['f1']:.3f}",
+                ])
+            rows.append([
+                SYSTEM_LABEL[system], SET_LABEL.get(set_name, set_name), "*overall*",
+                "", "", "", cm["n"],
+                f"acc {cm['accuracy']:.3f}", f"macro F1 {cm['macro_f1']:.3f}",
+                f"bal.acc {cm['balanced_accuracy']:.3f}",
+            ])
+            rows.append([
+                SYSTEM_LABEL[system], SET_LABEL.get(set_name, set_name), "*kappa*",
+                "", "", "", m["signature_matrix"]["n"],
+                f"unweighted {cm['cohen_kappa']:.3f}",
+                f"linear {cm['cohen_kappa_linear']:.3f}",
+                f"quadratic {cm['cohen_kappa_quadratic']:.3f}",
+            ])
+    table_to(
+        ctx, "per_class_confusion", ["system", "set", "class", "TP", "FP", "FN", "support",
+                                     "precision", "recall", "F1"],
+        rows, caption="Per-class confusion statistics of the four outcome classes",
+        align=["l", "l", "l"] + ["r"] * 7,
+        note="Outcome classes: executed_exact (correct and identical text), executed_match "
+             "(correct but differently written), valid_wrong (executes, wrong rows), invalid "
+             "(does not execute). Precision/recall are computed one-vs-rest.",
+    )
+
+    rows = []
+    for set_name in ctx.sets_in():
+        for system in ctx.systems_in(set_name):
+            cm = ctx.metrics[set_name][system]["outcome_confusion"]
+            for i, label in enumerate(cm["labels"]):
+                rows.append([SYSTEM_LABEL[system], SET_LABEL.get(set_name, set_name), OUTCOME_TITLE.get(label, label)]
+                            + list(cm["matrix"][i]))
+    table_to(
+        ctx, "outcome_matrix", ["system", "set", "gold/true outcome"] + [OUTCOME_TITLE[k] for k in OUTCOME_LABELS],
+        rows, caption="Outcome confusion matrix (rows = reference outcome, columns = predicted outcome)",
+        align=["l", "l", "l"] + ["r"] * len(OUTCOME_LABELS),
+    )
+
+    rows = []
+    for set_name in ctx.sets_in():
+        for system in ctx.systems_in(set_name):
+            mat = ctx.metrics[set_name][system]["signature_matrix"]
+            for i, label in enumerate(mat["labels"]):
+                rows.append([SYSTEM_LABEL[system], SET_LABEL.get(set_name, set_name), label] + list(mat["matrix"][i]))
+    labels = []
+    for set_name in ctx.sets_in():
+        for system in ctx.systems_in(set_name):
+            labels = ctx.metrics[set_name][system]["signature_matrix"]["labels"]
+            break
+        break
+    table_to(
+        ctx, "signature_matrix", ["system", "set", "gold signature"] + labels,
+        rows, caption="SQL-family (structural signature) confusion matrix",
+        align=["l", "l", "l"] + ["r"] * len(labels),
+        note="A signature such as AGG+JOIN+WHERE+GROUP means the query aggregates over a join and "
+             "groups the result. The diagonal counts the queries that used exactly the required "
+             "constructs; off-diagonal cells show added or dropped constructs.",
+    )
+
+
+def make_agreement_table(ctx: Ctx) -> None:
+    """tables/agreement - Cohen's kappa, Fleiss' kappa, Krippendorff's alpha, AC1, PABAK."""
+    rows = []
+    for set_name in ctx.sets_in():
+        panel = ctx.metrics.get("agreement", {}).get(set_name, {})
+        for pair, d in panel.get("pairs", {}).items():
+            a, b = pair.split("|")
+            rows.append([
+                SET_LABEL.get(set_name, set_name), SYSTEM_LABEL[a], SYSTEM_LABEL[b], d["n"],
+                f"{d['percent_agreement']:.3f}", f"{d['cohen_kappa']:.3f}",
+                f"{d['cohen_kappa_linear']:.3f}", f"{d['cohen_kappa_quadratic']:.3f}",
+                f"{d['gwet_ac1']:.3f}", f"{d['pabak']:.3f}",
+                f"{d['fleiss_kappa']:.3f}", f"{d['krippendorff_alpha']:.3f}",
+            ])
+        rows.append([
+            SET_LABEL.get(set_name, set_name), "*all systems*", "*all systems*", panel.get("n", 0),
+            "", "", "", "", "", "",
+            f"{panel.get('fleiss_kappa', 0.0):.3f}", f"{panel.get('krippendorff_alpha', 0.0):.3f}",
+        ])
+    table_to(
+        ctx, "agreement", ["set", "system A", "system B", "n items", "raw agreement", "Cohen kappa",
+                           "kappa linear", "kappa quadratic", "Gwet AC1", "PABAK", "Fleiss kappa",
+                           "Krippendorff alpha"],
+        rows, caption="Chance-corrected agreement between the systems (outcome classes)",
+        align=["l", "l", "l"] + ["r"] * 9,
+        note="These coefficients measure whether the systems classify items the same way *beyond "
+             "chance*. Landis & Koch: <0.20 slight, 0.21-0.40 fair, 0.41-0.60 moderate, 0.61-0.80 "
+             "substantial, 0.81-1.00 almost perfect. Low kappa with high raw agreement means the "
+             "task is easy (the models agree by default); high kappa means they make the same "
+             "distinctions.",
+    )
+
+
+def make_verdict_tables(ctx: Ctx) -> None:
+    """tables/verdict_matrix + tables/binary_confusions + tables/significance_tests."""
+    rows, tested = [], []
+    for set_name in ctx.sets_in():
+        vm = ctx.metrics.get("verdict", {}).get(set_name, {})
+        for pair, d in vm.get("pairs", {}).items():
+            a, b = pair.split("|")
+            rows.append([
+                SET_LABEL.get(set_name, set_name), SYSTEM_LABEL[a], SYSTEM_LABEL[b], d["n"],
+                f"{d['a_only_correct']}", f"{d['b_only_correct']}",
+                f"{d['exact_p']:.4g}", f"{d['chi2_p']:.4g}",
+                f"{d['odds_ratio']:.2f}" if d["odds_ratio"] not in (float("inf"),) else "inf",
+                "**yes**" if d["significant_05_adjusted"] else ("yes (uncorrected)" if d["significant_05"] else "no"),
+            ])
+            tested.append((set_name, a, b))
+    table_to(
+        ctx, "verdict_matrix", ["set", "system A", "system B", "n paired", "A right / B wrong",
+                                "B right / A wrong", "McNemar exact p", "chi2 p",
+                                "odds ratio", "significant (Holm, 5%)"],
+        rows, caption="Pairwise significance of the execution-accuracy differences (McNemar test)",
+        align=["l", "l", "l"] + ["r"] * 7,
+        note="Only items where the two systems disagree contribute to McNemar's test. "
+             "p is exact (binomial); Holm-Bonferroni multiplies it to correct for the number of "
+             "comparisons made inside each evaluation set.",
+    )
+
+    rows = []
+    for set_name in ctx.sets_in():
+        bc = ctx.metrics.get("binary_confusions", {}).get(set_name, {})
+        for (a, b), kinds in bc.items():
+            for kind, label, _ in KINDS:
+                d = kinds.get(kind, {})
+                if not d:
+                    continue
+                rows.append([
+                    SET_LABEL.get(set_name, set_name), SYSTEM_LABEL[a], SYSTEM_LABEL[b], label,
+                    d["tp"], d["fp"], d["fn"], d["tn"],
+                    f"{d['precision']:.3f}", f"{d['recall']:.3f}", f"{d['f1']:.3f}",
+                    f"{d['accuracy']:.3f}", f"{d['mcc']:.3f}", f"{d['cohen_kappa']:.3f}",
+                ])
+    table_to(
+        ctx, "binary_confusions", ["set", "reference", "model", "measure", "TP", "FP", "FN", "TN",
+                                   "precision", "recall", "F1", "accuracy", "MCC", "Cohen kappa"],
+        rows, caption="2x2 confusion matrices treating each system as the reference annotator",
+        align=["l", "l", "l", "l"] + ["r"] * 10,
+        note="The baseline is treated as the reference and the fine-tuned model as the prediction, "
+             "so 'TP' = both correct, 'FP' = only the fine-tuned model correct, 'FN' = only the "
+             "baseline correct. This is the usual way to report a model's agreement with a "
+             "reference system, not the way to report absolute quality.",
+    )
+
+    rows = []
+    for set_name in ctx.sets_in():
+        st = ctx.metrics.get("significance", {}).get(set_name, {})
+        for metric, systems in st.items():
+            for pair, d in systems.items():
+                a, b = pair.split("|")
+                rows.append([
+                    SET_LABEL.get(set_name, set_name), METRIC_TITLE.get(metric, metric),
+                    SYSTEM_LABEL[a], SYSTEM_LABEL[b],
+                    f"{100 * d['delta']:+.2f}", f"[{100 * d['lo']:+.2f}, {100 * d['hi']:+.2f}]",
+                    f"{d['p_two_sided']:.4g}", f"{d['p_adjusted']:.4g}",
+                    f"{100 * d['prob_better']:.1f}%",
+                ])
+    table_to(
+        ctx, "significance_tests", ["set", "metric", "system A", "system B", "delta (A-B)",
+                                    "95% bootstrap CI", "bootstrap p", "Holm-adjusted p",
+                                    "P(A better)"],
+        rows, caption="Paired bootstrap comparison of every metric between every pair of systems",
+        align=["l", "l", "l", "l"] + ["r"] * 5,
+        note="2000 paired bootstrap resamples over the evaluation items. The CI is the percentile "
+             "interval of the difference; the p-value is the two-sided bootstrap tail probability "
+             "and is Holm-corrected across the comparisons within each set.",
+    )
+
+
+def make_clause_table(ctx: Ctx) -> None:
+    """tables/clause_metrics - per-construct detection and per-construct accuracy."""
+    rows = []
+    for set_name in ctx.sets_in():
+        for system in ctx.systems_in(set_name):
+            per = ctx.metrics[set_name][system]["per_clause"]
+            for key, label in CLAUSES:
+                d = per.get(key)
+                if not d:
+                    continue
+                rows.append([
+                    SET_LABEL.get(set_name, set_name), SYSTEM_LABEL[system], label,
+                    d["gold_n"], d["pred_n"], d["tp"], d["fp"], d["fn"],
+                    f"{d['precision']:.3f}", f"{d['recall']:.3f}", f"{d['f1']:.3f}",
+                    f"{d['presence_accuracy']:.3f}", f"{d['accuracy_when_required']:.3f}",
+                ])
+    table_to(
+        ctx, "clause_metrics", ["set", "system", "clause", "gold n", "pred n", "TP", "FP", "FN",
+                                "precision", "recall", "F1", "presence accuracy", "accuracy when required"],
+        rows, caption="Component-level metrics per SQL construct",
+        align=["l", "l", "l"] + ["r"] * 10,
+        note="'presence accuracy' = how often the construct is present/absent exactly as in the "
+             "gold query. 'accuracy when required' = execution accuracy restricted to the items "
+             "whose gold query uses that construct, i.e. how well the model solves that kind of task.",
+    )
+
+
+def make_training_table(ctx: Ctx) -> None:
+    """tables/training_summary - hyper-parameters plus the loss trajectory."""
+    cfg = ctx.paths.cfg_view()
+    rows = [[k, cfg[k]] for k in sorted(cfg)]
+    table_to(ctx, "training_config", ["setting", "value"], rows, caption="Hyper-parameters of the finished run (config.json)")
+
+    log = ctx.paths.train_log
+    if not log:
+        return
+    step = lambda r: r.get("step", r.get("global_step", 0))  # noqa: E731
+    n = len(log)
+    idxs = sorted({0, n // 4, n // 2, 3 * n // 4, n - 1}) if n else []
+    rows = []
+    for i in idxs:
+        r = log[i]
+        rows.append([step(r), r.get("loss", ""), r.get("lr", ""), r.get("grad_norm", ""),
+                     r.get("epoch", ""), r.get("tokens_seen", ""), r.get("elapsed_s", "")])
+    table_to(
+        ctx, "training_curves", ["step", "loss", "learning rate", "grad norm", "epoch",
+                                 "tokens seen", "elapsed s"],
+        rows, caption="Training progress (quartiles of the logged history)",
+        align=["r"] * 7,
+        note="loss is the mean of the last loss window, not a smoothed value; it is logged from the "
+             "training loop itself so it is comparable between runs with the same configuration.",
+    )
+    losses = [r.get("loss") for r in log if isinstance(r.get("loss"), (int, float))]
+    if losses:
+        first, last = mean(losses[: max(1, len(losses) // 20)]), mean(losses[-max(1, len(losses) // 20):])
+        table_to(
+            ctx, "training_summary",
+            ["logged steps", "first loss (mean of first 5%)", "last loss (mean of last 5%)", "absolute drop"],
+            [[len(log), f"{first:.4f}", f"{last:.4f}", f"{first - last:+.4f}"]],
+            caption="Training loss summary", align=["r"] * 4,
+        )
+
+
+def make_calibration_table(ctx: Ctx) -> None:
+    """tables/calibration - confidence metrics and the reliability diagram numbers."""
+    if not ctx.confidence:
+        return
+    rows = []
+    for set_name, systems in ctx.confidence.items():
+        for system, entry in systems.items():
+            cal = entry.get("metrics", {})
+            if not cal:
+                continue
+            rows.append([
+                SET_LABEL.get(set_name, set_name), SYSTEM_LABEL.get(system, system), cal["n"],
+                f"{cal['ece']:.4f}", f"{cal['mce']:.4f}", f"{cal['brier']:.4f}",
+                f"{cal['nll']:.4f}", f"{cal['auc_roc']:.4f}", f"{cal['auc_pr']:.4f}",
+                f"{cal['mean_confidence']:.4f}", f"{cal['accuracy']:.4f}",
+                f"{entry.get('risk_coverage', {}).get('aurc', float('nan')):.4f}",
+                f"{entry.get('risk_coverage', {}).get('at_50pct', float('nan')):.4f}",
+            ])
+    table_to(
+        ctx, "calibration", ["set", "system", "n answers", "ECE", "MCE", "Brier", "NLL",
+                             "AUC-ROC", "AUC-PR", "mean confidence", "accuracy", "AURC",
+                             "accuracy at 50% coverage"],
+        rows, caption="Confidence calibration and selective-prediction metrics",
+        align=["l", "l"] + ["r"] * 11,
+        note="ECE/MCE = expected/maximum calibration error between confidence and accuracy. "
+             "AUC-ROC and AUC-PR treat confidence as a score for 'the answer is correct'. AURC is "
+             "the area under the risk-coverage curve, i.e. how fast accuracy drops as less "
+             "confident answers are added back in - lower is better.",
+    )
+    rows = []
+    for set_name, systems in ctx.confidence.items():
+        for system, entry in systems.items():
+            for b in entry.get("metrics", {}).get("bins", []):
+                rows.append([
+                    SET_LABEL.get(set_name, set_name), SYSTEM_LABEL.get(system, system),
+                    f"{b['lo']:.2f}-{b['hi']:.2f}", b["n"],
+                    f"{b['confidence']:.4f}", f"{b['accuracy']:.4f}", f"{b['gap']:.4f}",
+                ])
+    table_to(
+        ctx, "reliability_diagram", ["set", "system", "confidence bin", "n", "mean confidence",
+                                     "accuracy", "gap"],
+        rows, caption="Reliability diagram data (15 equal-width confidence bins)",
+        align=["l", "l", "l"] + ["r"] * 4,
+    )
+
+
+# @@TB4@@
+
+# @@REPORT@@
+
+# @@VERIFY@@
+
+# --------------------------------------------------------------------------
