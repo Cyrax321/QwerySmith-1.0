@@ -62,16 +62,6 @@ All evaluations use in-memory SQLite instances pre-populated with synthetic or g
 | **Noisy Schemas** (`heldout_sqale`) | 40.9% | — | **45.5%** *(80.9% Valid)* | **4 Wins, 2 Losses** (Highest syntax resilience) |
 | **Complex Schemas** (`heldout_large_schema`)| 19.7% | — | **17.6%** *(55.8% Valid)* | **10 Wins, 13 Losses** (Overlapping 95% CIs) |
 
-### The Single-Source Overfitting Problem (v1.0 Diagnosis)
-In **QwerySmith 1.0**, the model was trained exclusively on 10,000 rows of `b-mc2/sql-create-context`. While in-distribution execution accuracy surged to **88.5%**, the model **regressed by -18%** on external test queries relative to the untouched base model:
-
-| Evaluation Split | Base Model (3-Shot) | QwerySmith 1.0 (Fine-Tuned) | Outcome |
-|---|:---:|:---:|---|
-| **In-Distribution** (`sql-create-context`) | 60.7% | **88.5%** | 🔥 +21% improvement |
-| **External** (`gretelai/synthetic_text_to_sql`) | 52.3% | **34.6%** | ❌ **14 wins vs 52 losses** |
-
-**Root Cause**: The model memorized narrow dataset artifacts (e.g. single tables named `table_name_XX`, string-quoted numbers like `rank = "31"`), causing catastrophic forgetting of multi-table joins and standard SQL data types.
-
 ### 2. Detailed QwerySmith 1.1 Metrics with 95% Confidence Intervals
 
 | Test Split | System | Valid SQL | Exact Match | Execution Acc (95% CI) | Scored Items |
