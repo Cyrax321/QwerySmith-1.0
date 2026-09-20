@@ -378,3 +378,326 @@ class Ctx:
         return [s for s in SYSTEMS if s in self.pooled]
 
 # --------------------------------------------------------------------------
+# 1. Scoring engine
+#    Vendored from QwerySmith.py so this suite runs standalone in Colab.
+#    `--stage verify` proves it agrees with the original file and with sklearn.
+# --------------------------------------------------------------------------
+def split_statements(sql: str) -> list[str]:
+    out, buf = [], ""
+    for part in sql.split(";"):
+        buf += part
+        if sqlite3.complete_statement(buf + ";"):
+            if buf.strip():
+                out.append(buf.strip())
+            buf = ""
+        else:
+            buf += ";"
+    if buf.strip():
+        out.append(buf.strip().rstrip(";"))
+    return out
+
+
+def schema_only(context: str) -> str:
+    """Keep only CREATE TABLE / CREATE VIEW statements (the model never sees INSERT rows)."""
+    keep = [s + ";" for s in split_statements(context) if re.match(r"(?is)^create\s+(table|view)\b", s)]
+    return "\n".join(keep) if keep else context.strip()
+
+
+def _literals(sql: str):
+    strs = re.findall(r"'([^']*)'", sql)
+    nums = []
+    for x in re.findall(r"(?<![\w.])\d+(?:\.\d+)?", sql):
+        nums.append(float(x) if "." in x else int(x))
+    return strs, nums
+
+
+def populate_empty_tables(conn: sqlite3.Connection, gold: str, seed: int, n_rows: int = 40) -> None:
+    """Fill empty tables with random data seeded with the gold query's own literals."""
+    rng = random.Random(seed)
+    strs, nums = _literals(gold)
+    text_pool = strs + ["alpha", "beta", "gamma", "delta", "north", "south", "x", "y"]
+    date_pool = [s for s in strs if re.match(r"\d{4}-\d{2}", s)]
+    int_pool = [n for n in nums if isinstance(n, int)] + list(range(1, 11))
+    real_pool = [float(n) for n in nums] + [round(rng.uniform(1, 100), 2) for _ in range(10)]
+    try:
+        tables = [
+            r[0]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            )
+        ]
+    except sqlite3.Error:
+        return
+    for t in tables:
+        try:
+            if conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0] > 0:
+                continue
+            cols = conn.execute(f'PRAGMA table_info("{t}")').fetchall()
+        except sqlite3.Error:
+            continue
+        rows = []
+        for _ in range(n_rows):
+            row = []
+            for c in cols:
+                ty = (c[2] or "").upper()
+                if "INT" in ty:
+                    row.append(rng.choice(int_pool))
+                elif any(k in ty for k in ("REAL", "FLOA", "DOUB", "DEC", "NUM")):
+                    row.append(rng.choice(real_pool))
+                elif "DATE" in ty or "TIME" in ty:
+                    if date_pool and rng.random() < 0.5:
+                        row.append(rng.choice(date_pool))
+                    else:
+                        row.append(f"20{rng.randint(20, 24)}-{rng.randint(1, 12):02d}-{rng.randint(1, 28):02d}")
+                else:
+                    row.append(rng.choice(text_pool))
+            rows.append(row)
+        try:
+            conn.executemany(f'INSERT INTO "{t}" VALUES ({",".join("?" * len(cols))})', rows)
+        except sqlite3.Error:
+            pass
+
+
+def make_db(context: str, gold: str, seed: int) -> sqlite3.Connection:
+    conn = sqlite3.connect(":memory:")
+    for stmt in split_statements(context):
+        try:
+            conn.execute(stmt)
+        except sqlite3.Error:
+            pass
+    populate_empty_tables(conn, gold, seed=seed)
+    return conn
+
+
+def run_query(conn: sqlite3.Connection, sql: str, timeout: float = 3.0):
+    if not re.match(r"(?is)^\s*(select|with)\b", sql or ""):
+        return False, None
+    start = time.time()
+    conn.set_progress_handler(lambda: 1 if time.time() - start > timeout else 0, 10000)
+    try:
+        return True, conn.execute(sql).fetchmany(1000)
+    except Exception:  # noqa: BLE001
+        return False, None
+    finally:
+        conn.set_progress_handler(None, 0)
+
+
+def _canon(rows) -> list[str]:
+    return sorted(repr(tuple(round(v, 4) if isinstance(v, float) else v for v in r)) for r in rows)
+
+
+def _norm(sql: str) -> str:
+    return re.sub(r"\s+", " ", sql.strip().rstrip(";").lower()).strip()
+
+
+def clean_sql(text: str) -> str:
+    """Lenient extraction so the base model is not punished for chatty formatting."""
+    text = re.sub(r"(?s)<think>.*?</think>", "", text)
+    m = re.search(r"(?is)```(?:sql)?\s*(.*?)```", text)
+    if m:
+        text = m.group(1)
+    text = text.strip()
+    m = re.search(r"(?is)\b(select|with)\b", text)
+    if m:
+        text = text[m.start():]
+    stmts = split_statements(text)
+    return (stmts[0] if stmts else text).strip()
+
+
+def wilson(k: int, n: int, z: float = 1.96):
+    if n == 0:
+        return 0.0, 0.0
+    p = k / n
+    d = 1 + z * z / n
+    c = (p + z * z / (2 * n)) / d
+    h = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
+    return max(0.0, c - h), min(1.0, c + h)
+
+
+def _loader_args(ns) -> argparse.Namespace:
+    """Minimal namespace the vendored dataset loaders need."""
+    return argparse.Namespace(n_train=int(ns.n_train or 0), n_test=int(ns.n_test or 200), n_external=0)
+
+
+def load_in_dist(args) -> tuple[list[dict], list[dict]]:
+    """Verbatim mirror of QwerySmith.load_in_dist (same seed, same order)."""
+    from datasets import load_dataset
+
+    log(f"Loading {IN_DIST_DATASET} ...")
+    ds = load_dataset(IN_DIST_DATASET, split="train")
+    rows = [
+        {
+            "question": r["question"],
+            "context": r["context"],
+            "schema": schema_only(r["context"]),
+            "gold": r["answer"].strip(),
+        }
+        for r in ds
+    ]
+    random.Random(SEED).shuffle(rows)
+    test, rest = rows[: args.n_test], rows[args.n_test:]
+    test_q = {r["question"] for r in test}
+    train = [r for r in rest if r["question"] not in test_q]
+    if args.n_train:
+        train = train[: args.n_train]
+    return train, test
+
+
+def load_external(args) -> list[dict]:
+    """Verbatim mirror of QwerySmith.load_external (same seed, same order)."""
+    from datasets import load_dataset
+
+    log(f"Loading {EXTERNAL_DATASET} (external test) ...")
+    try:
+        ds = load_dataset(EXTERNAL_DATASET, split="test")
+    except Exception as e:  # noqa: BLE001
+        log(f"WARNING: could not load external set, skipping it ({e})")
+        return []
+    idx = list(range(len(ds)))
+    random.Random(SEED).shuffle(idx)
+    items = []
+    for i in idx:
+        r = ds[i]
+        it = {
+            "question": r["sql_prompt"],
+            "context": r["sql_context"],
+            "schema": schema_only(r["sql_context"]),
+            "gold": r["sql"].strip(),
+        }
+        conn = make_db(it["context"], it["gold"], seed=0)
+        ok, rows = run_query(conn, it["gold"])
+        conn.close()
+        if ok and rows:
+            items.append(it)
+        if len(items) >= args.n_external:
+            break
+    with_rows = sum("insert into" in it["context"].lower() for it in items)
+    log(f"external items usable: {len(items)} ({with_rows} ship with their own INSERT rows)")
+    return items
+
+
+def derive_items(args, cfg: dict) -> dict:
+    """Re-build the evaluation sets exactly as the training run did."""
+    ns = _loader_args(cfg)
+    ns.n_train = int(cfg.get("n_train", 0) or 0)
+    if args.n_test:
+        ns.n_test = args.n_test
+    n_ext = int(cfg.get("n_external", 0) or 0) if args.n_external is None else args.n_external
+    ns.n_external = n_ext
+    _, in_test = load_in_dist(ns)
+    items = {"in_dist": in_test}
+    if n_ext:
+        ext = load_external(ns)
+        if ext:
+            items["external"] = ext
+    return items
+
+
+def items_from_json(path: Path) -> dict:
+    """Load a saved items dump: {"in_dist": [...], ...} or a flat list with a "set" key."""
+    data = json_load(path, None)
+    if data is None:
+        return {}
+    if isinstance(data, dict) and "in_dist" in data:
+        return {k: v for k, v in data.items() if isinstance(v, list)}
+    if isinstance(data, list):
+        out: dict = defaultdict(list)
+        for row in data:
+            out[row.get("set", "in_dist")].append(row)
+        return dict(out)
+    return {}
+
+
+def resolve_items(args, paths: RunPaths) -> dict:
+    """Item lists in the exact order the cached predictions were produced.
+
+    Priority: --items-json  ->  <out>/eval/items.json  ->  re-derive from Hugging Face.
+    """
+    auto = paths.eval_dir / "items.json"
+    items: dict = {}
+    if args.items_json:
+        items = items_from_json(Path(args.items_json))
+        if items:
+            log(f"Evaluation items: --items-json {args.items_json}")
+    if not items and auto.exists():
+        items = items_from_json(auto)
+        if items:
+            log(f"Evaluation items: {auto}")
+    if not items:
+        if getattr(args, "offline", False):
+            sys.exit(
+                "No cached items found and --offline was given.\n"
+                f"Expected {auto} or pass --items-json. Run once without --offline to build it."
+            )
+        items = derive_items(args, paths.config)
+        log("Evaluation items: re-derived from the Hugging Face datasets")
+        if not getattr(args, "no_dump_items", False):
+            json_dump(auto, items)
+            log(f"  cached to {auto} so later runs never download anything again")
+
+    for set_name in list(items):
+        for system in SYSTEMS:
+            payload = paths.preds.get((system, set_name))
+            if not payload:
+                continue
+            n_pred, n_item = len(payload.get("pred", [])), len(items[set_name])
+            if n_pred > n_item:
+                log(
+                    f"WARNING: {system}/{set_name} has {n_pred} predictions but only {n_item} items:\n"
+                    f"         the cached run used a larger --n-test/--n-external than this script.\n"
+                    f"         Re-run:  python QwerySmith.py --stage eval --out {paths.out}"
+                )
+                if not args.allow_mismatch:
+                    sys.exit("Refusing to guess the alignment. Use --allow-mismatch to continue anyway.")
+            elif n_pred < n_item:
+                log(f"note: {system}/{set_name} covers {n_pred}/{n_item} items (partial run); scoring that prefix")
+                items[set_name] = items[set_name][:n_pred]
+    return items
+
+
+def find_pipeline(start: Path | None = None) -> Path | None:
+    """Locate QwerySmith.py (explicit --pipeline, next to this file, or the cwd)."""
+    if start and Path(start).exists():
+        return Path(start)
+    here = Path(__file__).resolve().parent
+    for cand in (here / "QwerySmith.py", Path.cwd() / "QwerySmith.py", here.parent / "QwerySmith.py"):
+        if cand.exists():
+            return cand
+    return None
+
+
+def load_pipeline_module(path: Path):
+    """Import QwerySmith.py by path. Its heavy imports are function-local, so this is cheap."""
+    try:
+        spec = importlib.util.spec_from_file_location("qwerysmith_pipeline", path)
+        if spec is None or spec.loader is None:
+            return None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception as e:  # noqa: BLE001
+        log(f"(could not import {path}: {e})")
+        return None
+
+
+def user_msg(it: dict) -> dict:
+    return {"role": "user", "content": f"Schema:\n{it['schema']}\n\nQuestion: {it['question']}"}
+
+
+def build_messages(it: dict, shots=()) -> list:
+    msgs = [{"role": "system", "content": SYSTEM}]
+    for s in shots:
+        msgs += [user_msg(s), {"role": "assistant", "content": s["gold"]}]
+    msgs.append(user_msg(it))
+    return msgs
+
+
+def render_prompt(tok, messages: list) -> str:
+    try:
+        return tok.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
+        )
+    except TypeError:  # chat templates without the thinking switch
+        return tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+
+# --------------------------------------------------------------------------
