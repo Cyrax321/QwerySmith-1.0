@@ -1,6 +1,7 @@
 # QwerySmith: Production Text-to-SQL Pipeline
 
 [![Hugging Face Models](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-QwerySmith--1.0-blue)](https://huggingface.co/Cyrax321/QwerySmith-1.0)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Cyrax321/QwerySmith-1.0/blob/main/notebooks/QwerySmith_Colab_Training.ipynb)
 [![Model Quantization](https://img.shields.io/badge/Format-GGUF%20%7C%20Merged%2016bit-green)](https://huggingface.co/Cyrax321/QwerySmith-1.0-GGUF)
 [![Framework](https://img.shields.io/badge/Fine--Tuning-Unsloth%20%2B%20TRL-orange)](https://github.com/unslothai/unsloth)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -12,6 +13,8 @@
 ## 📂 Repository Structure
 
 ```text
+├── notebooks/
+│   └── QwerySmith_Colab_Training.ipynb # 1-click Google Colab training notebook (T4/A100)
 ├── QwerySmith/
 │   ├── Qwerysmith_V11.py       # v1.1 fine-tuning pipeline with multi-source mixing & ablation
 │   ├── data_sources.py         # Multi-dataset registry, split carver & leak-proof sampler
