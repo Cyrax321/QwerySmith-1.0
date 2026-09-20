@@ -278,3 +278,113 @@ def score(items: list[dict], preds: list[str]):
 # the SQL-execution logic.
 # --------------------------------------------------------------------------
 def user_msg(it: dict) -> dict:
+    return {"role": "user", "content": f"Schema:\n{it['schema']}\n\nQuestion: {it['question']}"}
+
+
+def build_messages(it: dict, shots=()) -> list[dict]:
+    msgs = [{"role": "system", "content": SYSTEM}]
+    for s in shots:
+        msgs += [user_msg(s), {"role": "assistant", "content": s["gold"]}]
+    msgs.append(user_msg(it))
+    return msgs
+
+
+def render_prompt(tok, messages: list[dict]) -> str:
+    return tok.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
+    )
+
+
+# --------------------------------------------------------------------------
+# 3. Model, generation, training
+# --------------------------------------------------------------------------
+def free_gpu() -> None:
+    import torch
+
+    gc.collect()
+    torch.cuda.empty_cache()
+
+
+def load_model(args, path: str | None = None):
+    from unsloth import FastLanguageModel
+
+    model, tok = FastLanguageModel.from_pretrained(
+        model_name=path or args.model,
+        max_seq_length=args.max_len,
+        load_in_4bit=True,
+        dtype=None,
+    )
+    return model, tok
+
+
+def generate(model, tok, messages_list, batch_size: int, max_new_tokens: int = 256) -> list[str]:
+    import torch
+
+    tok.padding_side = "left"
+    if tok.pad_token is None:
+        tok.pad_token = tok.eos_token
+    outs = []
+    t0 = time.time()
+    for i in range(0, len(messages_list), batch_size):
+        prompts = [render_prompt(tok, m) for m in messages_list[i : i + batch_size]]
+        enc = tok(prompts, return_tensors="pt", padding=True, add_special_tokens=False).to("cuda")
+        with torch.no_grad():
+            gen = model.generate(
+                **enc,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                pad_token_id=tok.pad_token_id,
+                use_cache=True,
+            )
+        for row in gen:
+            outs.append(tok.decode(row[enc["input_ids"].shape[1]:], skip_special_tokens=True))
+        print(f"  generated {len(outs)}/{len(messages_list)}  ({time.time() - t0:.0f}s)")
+    return outs
+
+
+def run_system(name, model, tok, sets, shots, args) -> None:
+    pdir = Path(args.out) / "preds"
+    pdir.mkdir(parents=True, exist_ok=True)
+    for sname, items in sets.items():
+        f = pdir / f"{name}__{sname}.json"
+        if f.exists() and not args.force:
+            print(f"[{name}/{sname}] cached, skipping")
+            continue
+        print(f"[{name}/{sname}] generating {len(items)} ...")
+        raw = generate(model, tok, [build_messages(it, shots) for it in items], args.gen_batch)
+        f.write_text(json.dumps({"raw": raw, "pred": [clean_sql(r) for r in raw]}, indent=1))
+
+
+def stage_baseline(args, sets, shots) -> None:
+    pdir = Path(args.out) / "preds"
+    todo = [
+        n
+        for n in ("base_zeroshot", "base_fewshot")
+        if args.force or any(not (pdir / f"{n}__{s}.json").exists() for s in sets)
+    ]
+    if not todo:
+        print("baselines already cached")
+        return
+    from unsloth import FastLanguageModel
+
+    model, tok = load_model(args)
+    FastLanguageModel.for_inference(model)
+    if "base_zeroshot" in todo:
+        run_system("base_zeroshot", model, tok, sets, (), args)
+    if "base_fewshot" in todo:
+        run_system("base_fewshot", model, tok, sets, shots, args)
+    del model, tok
+    free_gpu()
+
+
+def stage_train(args, train_items):
+    import torch
+    from datasets import Dataset
+    from trl import SFTConfig, SFTTrainer
+    from unsloth import FastLanguageModel
+    from unsloth.chat_templates import train_on_responses_only
+
+    out = Path(args.out)
+    adapter_dir = out / "adapter"
+    model, tok = load_model(args)
+    model = FastLanguageModel.get_peft_model(
