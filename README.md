@@ -142,6 +142,18 @@ ollama run Cyrax321/QwerySmith-1.0-GGUF
 
 ---
 
+---
+
+## ⚡ Hardware Resource Profile
+
+Training and inference resource footprint measured on standard cloud hardware:
+
+| Phase | Device | Precision | VRAM / RAM | Speed / Throughput |
+|:---|:---|:---|:---|:---|
+| **Training (QLoRA)** | 1x Tesla T4 (16GB) | 4-bit Base + 16-bit LoRA | 4.5 GB GPU / 4.1 GB RAM | 2.44 samples/sec (~68 min / epoch) |
+| **Inference (Unsloth)** | 1x Tesla T4 (16GB) | 4-bit BitsAndBytes | ~3.1 GB GPU | ~45 tokens/sec |
+| **Edge / Local (GGUF)** | CPU (Apple M-Series / x86) | Q4_K_M Quantized | ~2.6 GB System RAM | ~35 tokens/sec |
+
 ## 🛠️ Training Both Versions (Google Colab / Linux GPU)
 
 Recommended runtime: **Tesla T4 GPU** (Google Colab free tier is fully sufficient).
