@@ -10,7 +10,7 @@
 
 ---
 
-## 📂 Repository Structure
+## 📂 Repository Layout
 
 ```text
 ├── QwerySmith/
