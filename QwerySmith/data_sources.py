@@ -273,3 +273,35 @@ def build_sets(args):
             ho = _executable_only(ho, args.n_heldout)
             if ho:
                 sets[f"heldout_{name}"] = ho
+            else:
+                print(f"WARNING: '{name}' yielded 0 usable held-out items "
+                      f"(schema-size cap + execution filter may be too strict for this source)")
+
+    eval_qs = {it["question"] for s in sets.values() for it in s}
+
+    # ---- now build the training mix ----
+    train = []
+    for name, n in _parse_mix(args.mix):
+        pool = in_pool[args.n_test:] if name == "sql_create_context" \
+            else _load_source(name, n * 2, seed)
+        picked = [r for r in pool if r["question"] not in eval_qs][:n]
+        train += picked
+        print(f"  mix: {len(picked)} from {name}")
+
+    # de-dup by question, then interleave sources by shuffling
+    seen, uniq = set(), []
+    for r in train:
+        if r["question"] in seen:
+            continue
+        seen.add(r["question"])
+        uniq.append(r)
+    random.Random(seed).shuffle(uniq)
+
+    by_src = {}
+    for r in uniq:
+        by_src[r["source"]] = by_src.get(r["source"], 0) + 1
+    overlap = sum(r["schema"] in {t["schema"] for t in uniq} for r in in_test)
+    print(f"train={len(uniq)} {by_src}")
+    print(f"eval sets: {{{', '.join(f'{k}={len(v)}' for k, v in sets.items())}}}")
+    print(f"in_dist test schemas also seen in train: {overlap / max(1, len(in_test)):.0%}")
+    return uniq, sets
