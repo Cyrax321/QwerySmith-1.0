@@ -701,3 +701,327 @@ def render_prompt(tok, messages: list) -> str:
         return tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 
 # --------------------------------------------------------------------------
+# 3. SQL analysis: text normalisation, clause flags, signatures, schema linking
+# --------------------------------------------------------------------------
+_STR_RE = re.compile(r"'(?:[^']|'')*'")
+_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_NUM_RE = re.compile(r"(?<![\w.])\d+(?:\.\d+)?")
+_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)?|[^\sA-Za-z0-9_]")
+_KEYWORDS = {
+    "select", "from", "where", "group", "by", "order", "having", "limit", "offset", "join", "inner",
+    "left", "right", "full", "outer", "cross", "on", "as", "and", "or", "not", "in", "is", "null",
+    "distinct", "union", "all", "except", "intersect", "with", "case", "when", "then", "else", "end",
+    "asc", "desc", "between", "like", "exists", "using", "natural", "values", "recursive",
+} | set(AGG_FUNCS)
+
+
+def strip_literals(sql: str) -> str:
+    """Blank out string literals so keyword searches never fire inside data."""
+    return _STR_RE.sub(" '' ", sql or "")
+
+
+def tokenize(sql: str) -> list[str]:
+    return [t.lower() for t in _TOKEN_RE.findall(sql or "")]
+
+
+def tokenize_no_literals(sql: str) -> list[str]:
+    """Token list with literal contents replaced by a placeholder (structure-aware F1)."""
+    s = _STR_RE.sub(" '?' ", sql or "")
+    s = _NUM_RE.sub(" 0 ", s)
+    return tokenize(s)
+
+
+def clause_flags(sql: str) -> dict:
+    """Which SQL constructs does this query use? Works on any dialect-ish text."""
+    s = strip_literals(sql or "")
+    low = s.lower()
+    flags = {
+        "distinct": bool(re.search(r"\bdistinct\b", low)),
+        "aggregate": bool(re.search(r"\b(" + "|".join(AGG_FUNCS) + r")\s*\(", low)),
+        "join": bool(re.search(r"\bjoin\b", low)) or bool(re.search(r",\s*\w+\s+on\b", low)),
+        "where": bool(re.search(r"\bwhere\b", low)),
+        "group_by": bool(re.search(r"\bgroup\s+by\b", low)),
+        "having": bool(re.search(r"\bhaving\b", low)),
+        "order_by": bool(re.search(r"\border\s+by\b", low)),
+        "limit": bool(re.search(r"\blimit\b", low)) or bool(re.search(r"\bfetch\s+(first|next)\b", low)),
+        "subquery": len(re.findall(r"\bselect\b", low)) > 1 or bool(re.search(r"\bexists\s*\(", low)),
+        "set_op": bool(re.search(r"\b(union|intersect|except)\b", low)),
+        "cte": bool(re.match(r"\s*with\b", low)),
+        "case_when": bool(re.search(r"\bcase\b", low)) and bool(re.search(r"\bwhen\b", low)),
+        "star": bool(re.search(r"select\s+(distinct\s+)?\*", low)),
+        "offset": bool(re.search(r"\boffset\b", low)),
+        "string_literal": bool(_STR_RE.search(sql or "")),
+        "numeric_literal": bool(_NUM_RE.search(strip_literals(sql or ""))),
+    }
+    return flags
+
+
+def signature_full(sql: str) -> str:
+    """Ordered, human readable signature of the structural constructs."""
+    flags = clause_flags(sql)
+    parts = []
+    if flags["cte"]:
+        parts.append("CTE")
+    if flags["set_op"]:
+        parts.append("SETOP")
+    if flags["subquery"]:
+        parts.append("SUBQ")
+    parts.append("AGG" if flags["aggregate"] else "PLAIN")
+    if flags["distinct"]:
+        parts.append("DISTINCT")
+    if flags["join"]:
+        parts.append("JOIN")
+    if flags["where"]:
+        parts.append("WHERE")
+    if flags["group_by"]:
+        parts.append("GROUP")
+    if flags["having"]:
+        parts.append("HAVING")
+    if flags["order_by"] or flags["limit"]:
+        parts.append("ORDERLIMIT")
+    if flags["case_when"]:
+        parts.append("CASE")
+    return "+".join(parts)
+
+
+def classify_complexity(sql: str) -> str:
+    """Coarse task family of a query, used for the 'accuracy by complexity' breakdown."""
+    f = clause_flags(sql)
+    if f["set_op"]:
+        return "set operation"
+    if f["cte"] or f["subquery"]:
+        return "subquery / CTE"
+    if f["aggregate"] and f["group_by"]:
+        return "aggregation + grouping"
+    if f["aggregate"]:
+        return "simple aggregation"
+    if f["join"]:
+        return "join"
+    if f["distinct"]:
+        return "distinct projection"
+    if f["order_by"] or f["limit"]:
+        return "ordering / top-k"
+    if f["where"]:
+        return "filter"
+    return "plain projection"
+
+
+def _split_top_level(s: str) -> list[str]:
+    out, depth, buf = [], 0, ""
+    for ch in s:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        if ch == "," and depth == 0:
+            out.append(buf)
+            buf = ""
+        else:
+            buf += ch
+    if buf.strip():
+        out.append(buf)
+    return out
+
+
+def parse_schema(schema: str) -> dict:
+    """Tables -> columns, plus view names, parsed out of the CREATE statements."""
+    tables: dict = {}
+    views: list = []
+    for stmt in split_statements(schema or ""):
+        m = re.match(
+            r"(?is)^\s*create\s+table\s+(?:if\s+not\s+exists\s+)?[`\"\[]?(\w+)[`\"\]]?\s*\((.*)\)\s*$",
+            stmt.strip(),
+        )
+        if m:
+            cols = []
+            for part in _split_top_level(m.group(2)):
+                part = part.strip()
+                if not part:
+                    continue
+                first = re.sub(r'[`"\[\]]', "", part.split()[0])
+                if first.lower() in {"primary", "foreign", "unique", "constraint", "check", "key", "index"}:
+                    continue
+                if re.match(r"^[A-Za-z_]\w*$", first):
+                    cols.append(first.lower())
+            tables[m.group(1).lower()] = cols
+            continue
+        m = re.match(r"(?is)^\s*create\s+view\s+[`\"\[]?(\w+)", stmt.strip())
+        if m:
+            views.append(m.group(1).lower())
+    return {
+        "tables": tables,
+        "views": views,
+        "names": set(tables) | set(views),
+        "columns": {c for cols in tables.values() for c in cols},
+    }
+
+
+def extract_refs(sql: str, schema: dict) -> dict:
+    """Which schema tables/columns does this query reference? (this is schema linking)"""
+    s = strip_literals(sql or "")
+    names, cols = schema["names"], schema["columns"]
+    aliases: dict = {}
+    for m in re.finditer(
+        r"(?is)\b(?:from|join|into|update)\s+[`\"\[]?(\w{1,64})[`\"\]]?"
+        r"(?:\s+(?:as\s+)?[`\"\[]?(\w{1,64})[`\"\]]?)?",
+        s,
+    ):
+        t = m.group(1).lower()
+        alias = (m.group(2) or "").lower()
+        if t in names and alias and alias not in _KEYWORDS and alias != t:
+            aliases[alias] = t
+    tables: set = set(aliases.values())
+    used: set = set()
+    for m in re.finditer(r"\b([A-Za-z_]\w*)\.([A-Za-z_]\w*)\b", s):
+        qual, col = m.group(1).lower(), m.group(2).lower()
+        if col in cols:
+            used.add(col)
+        resolved = aliases.get(qual, qual)
+        if resolved in names:
+            tables.add(resolved)
+    for tok in _IDENT_RE.findall(s.lower()):
+        if tok in names:
+            tables.add(tok)
+        if tok in cols:
+            used.add(tok)
+    return {"tables": sorted(tables), "columns": sorted(used), "aliases": aliases}
+
+
+def levenshtein(a: str, b: str) -> int:
+    """Character-level edit distance (two-row DP)."""
+    if a == b:
+        return 0
+    if not a or not b:
+        return len(a) or len(b)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+def edit_similarity(a: str, b: str) -> float:
+    a, b = _norm(a or ""), _norm(b or "")
+    return 1.0 - safe_div(levenshtein(a, b), max(len(a), len(b), 1))
+
+
+def prf(tp: float, fp: float, fn: float) -> tuple:
+    p = safe_div(tp, tp + fp)
+    r = safe_div(tp, tp + fn)
+    return p, r, safe_div(2 * p * r, p + r)
+
+
+def token_f1(pred: str, gold: str, no_literals: bool = False) -> float:
+    """Multiset token F1 between two SQL strings."""
+    fn = tokenize_no_literals if no_literals else tokenize
+    a, b = fn(pred), fn(gold)
+    if not a or not b:
+        return 0.0
+    ca, cb = Counter(a), Counter(b)
+    overlap = sum((ca & cb).values())
+    if not overlap:
+        return 0.0
+    p, r = overlap / len(a), overlap / len(b)
+    return safe_div(2 * p * r, p + r)
+
+
+def clause_jaccard(fa: dict, fb: dict) -> float:
+    """Soft overlap of the construct sets (Jaccard over the tracked clauses)."""
+    keys = [k for k, _ in CLAUSES]
+    inter = sum(1 for k in keys if fa.get(k) and fb.get(k))
+    union = sum(1 for k in keys if fa.get(k) or fb.get(k))
+    return safe_div(inter, union)
+
+
+def component_f1(fa: dict, fb: dict) -> float:
+    """Micro F1 over clause flags: did the model reproduce the required constructs?"""
+    keys = [k for k, _ in CLAUSES]
+    tp = sum(1 for k in keys if fa.get(k) and fb.get(k))
+    fp = sum(1 for k in keys if fb.get(k) and not fa.get(k))
+    fn = sum(1 for k in keys if fa.get(k) and not fb.get(k))
+    return prf(tp, fp, fn)[2]
+
+
+def schema_link(gold_refs: dict, pred_refs: dict) -> tuple:
+    """Precision/recall/F1 over the set of schema tables + columns used."""
+    counts = {"tp": 0, "fp": 0, "fn": 0}
+    for key in ("tables", "columns"):
+        g, p = set(gold_refs[key]), set(pred_refs[key])
+        counts["tp"] += len(g & p)
+        counts["fp"] += len(p - g)
+        counts["fn"] += len(g - p)
+    p, r, f = prf(counts["tp"], counts["fp"], counts["fn"])
+    return p, r, f, counts
+
+
+def _mcc(tp: int, tn: int, fp: int, fn: int) -> float:
+    """Matthews correlation coefficient (0 when a whole row or column is empty)."""
+    den = math.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
+    return safe_div(tp * tn - fp * fn, den)
+
+
+def cm2(y_true: Sequence[int], y_pred: Sequence[int]) -> dict:
+    """Binary confusion matrix with the usual derived scores."""
+    tp = sum(1 for t, p in zip(y_true, y_pred) if t == 1 and p == 1)
+    tn = sum(1 for t, p in zip(y_true, y_pred) if t == 0 and p == 0)
+    fp = sum(1 for t, p in zip(y_true, y_pred) if t == 0 and p == 1)
+    fn = sum(1 for t, p in zip(y_true, y_pred) if t == 1 and p == 0)
+    p, r, f1 = prf(tp, fp, fn)
+    n = tp + tn + fp + fn
+    return {
+        "tp": tp, "fp": fp, "fn": fn, "tn": tn, "n": n,
+        "precision": p, "recall": r, "f1": f1,
+        "accuracy": safe_div(tp + tn, n),
+        "specificity": safe_div(tn, tn + fp),
+        "npv": safe_div(tn, tn + fn),
+        "balanced_accuracy": 0.5 * (safe_div(tp, tp + fn) + safe_div(tn, tn + fp)),
+        "mcc": _mcc(tp, tn, fp, fn),
+    }
+
+
+def confusion_matrix(y_true: Sequence[str], y_pred: Sequence[str], labels: Sequence[str] | None = None) -> dict:
+    """Multiclass confusion matrix with per-class scores and macro/weighted/micro F1."""
+    labels = list(labels) if labels is not None else sorted(set(list(y_true) + list(y_pred)))
+    idx = {lab: i for i, lab in enumerate(labels)}
+    k = len(labels)
+    mat = [[0] * k for _ in range(k)]
+    for t, p in zip(y_true, y_pred):
+        if t in idx and p in idx:
+            mat[idx[t]][idx[p]] += 1
+    per = {}
+    for i, lab in enumerate(labels):
+        tp = mat[i][i]
+        fp = sum(mat[r][i] for r in range(k)) - tp
+        fn = sum(mat[i]) - tp
+        p, r, f1 = prf(tp, fp, fn)
+        per[lab] = {
+            "precision": p, "recall": r, "f1": f1,
+            "support": sum(mat[i]), "tp": tp, "fp": fp, "fn": fn,
+        }
+    support = {lab: per[lab]["support"] for lab in labels}
+    tp_all = sum(mat[i][i] for i in range(k))
+    fp_all = sum(mat[i][j] for i in range(k) for j in range(k) if i != j)
+    fn_all = fp_all
+    _, _, micro_f1 = prf(tp_all, fp_all, fn_all)
+    total = sum(support.values())
+    correct = sum(1 for t, p in zip(y_true, y_pred) if t == p)
+    return {
+        "labels": labels,
+        "matrix": mat,
+        "per_class": per,
+        "support": support,
+        "accuracy": safe_div(correct, total),
+        "macro_f1": mean([per[l]["f1"] for l in labels]),
+        "weighted_f1": safe_div(sum(per[l]["f1"] * support[l] for l in labels), total),
+        "micro_f1": micro_f1,
+        "balanced_accuracy": mean([per[l]["recall"] for l in labels]),
+        "cohen_kappa": cohen_kappa(list(y_true), list(y_pred), "none"),
+        "cohen_kappa_linear": cohen_kappa(list(y_true), list(y_pred), "linear"),
+        "cohen_kappa_quadratic": cohen_kappa(list(y_true), list(y_pred), "quadratic"),
+        "krippendorff_alpha": 0.0,
+        "n": total,
+    }
+
+# --------------------------------------------------------------------------
