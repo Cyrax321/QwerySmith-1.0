@@ -188,7 +188,7 @@ print("Query Result:", result["rows"])
 
 ---
 
-## 📊 Comprehensive Evaluation Suite (`qwerysmith_eval.py`)
+## 📈 Research & Evaluation Toolkit (`qwerysmith_eval.py`)
 
 `qwerysmith_eval.py` is an evaluation framework that produces publication-ready figures, confidence intervals, and statistical tests:
 
