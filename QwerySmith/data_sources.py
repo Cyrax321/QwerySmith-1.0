@@ -142,3 +142,45 @@ SOURCES = {
 }
 
 
+def _load_source(name: str, limit: int, seed: int, oversample: int = 3) -> list[dict]:
+    """Load a registry source into QwerySmith's internal item format.
+
+    oversample: how big a multiple of `limit` to scan before giving up. Raise
+    this for low-yield sources (e.g. large_schema, where the size filter in
+    _executable_only rejects most rows) so you don't silently end up with
+    fewer items than requested.
+    """
+    from datasets import load_dataset
+
+    try:
+        from Qwerysmith_V11 import schema_only
+    except ImportError:
+        from QwerySmith import schema_only
+
+    spec = SOURCES[name]
+    print(f"Loading {spec['path']} [{spec['split']}] ...")
+    try:
+        ds = load_dataset(spec["path"], split=spec["split"])
+    except Exception as e:  # noqa: BLE001
+        print(f"WARNING: could not load {name}, skipping it ({e})")
+        return []
+
+    idx = list(range(len(ds)))
+    random.Random(seed).shuffle(idx)
+    row_filter = spec.get("filter")
+    items = []
+    for i in idx[: max(limit * oversample, limit) if limit else len(idx)]:
+        r = ds[i]
+        if row_filter and not row_filter(r):
+            continue
+        ctx = (r.get(spec["ctx"]) or "").strip()
+        q = (r.get(spec["q"]) or "").strip()
+        gold = (r.get(spec["sql"]) or "").strip()
+        if not (ctx and q and gold):
+            continue
+        items.append({
+            "question": q, "context": ctx,
+            "schema": schema_only(ctx), "gold": gold, "source": name,
+        })
+        if limit and len(items) >= limit:
+            break
