@@ -84,13 +84,7 @@ In **QwerySmith 1.0**, the model was trained exclusively on 10,000 rows of `b-mc
 > **Key Research Finding — The Few-Shot Paradox:**
 > Providing 3-shot prompt exemplars to the base model caused prompt dilution and degraded accuracy across real-world enterprise queries (dropping from 52.3% to 47.3% on Gretel, and 50.0% to 40.9% on SQaLe). Fine-tuning embedded SQL syntax rules permanently into the weights, achieving superior accuracy with **zero additional prompt tokens or latency overhead**.
 
-### How v1.1 Solves It:
-1. **Multi-Source Data Mixing (`--mix`)**: Draws a configurable mix across sources (`sql_create_context:5000,gretel:5000`), forcing the model to learn 100+ realistic business schemas, correct column linking, and real numeric types.
-2. **Leak-Proof Evaluation Splits**: Evaluation sets (`in_dist`, `gretel_test`, `heldout_*`) are carved out **before** constructing the training mix. Any question present in any eval set is strictly excluded from training.
-3. **True Out-of-Distribution Generalization (`--heldout`)**: Benchmarked against sources that **never** appear in training (`sqale`, `large_schema`).
-4. **Regularization & Recipe Ablation**: Configurable LoRA dropout (`--dropout 0.05`), lowered learning rate (`--lr 1e-4`), and periodic checkpointing (`--save-steps`).
 
----
 
 ---
 
