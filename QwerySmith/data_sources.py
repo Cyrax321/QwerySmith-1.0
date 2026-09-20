@@ -123,3 +123,22 @@ SOURCES = {
     "gretel_test": dict(
         path="gretelai/synthetic_text_to_sql", split="test",
         q="sql_prompt", ctx="sql_context", sql="sql",
+    ),
+    "sqale": dict(  # column names verified against the live HF viewer
+        path="trl-lab/SQaLe-text-to-SQL-dataset", split="train",
+        q="question", ctx="schema", sql="query",
+    ),
+    "large_schema": dict(
+        path="VikramPal/large-schema-text2sql-20k", split="train",
+        # ctx is the raw system_prompt; schema_only() (called below) already
+        # strips everything except CREATE TABLE/VIEW statements, so no extra
+        # parsing is needed to pull the schema out of the surrounding prompt.
+        q="question", ctx="system_prompt", sql="response",
+        filter=lambda r: (
+            r.get("task_mode") == "single_sql"
+            and int(r.get("id") or -1) not in _LARGE_SCHEMA_BAD_IDS
+        ),
+    ),
+}
+
+
