@@ -47,6 +47,12 @@ QwerySmith is developed across two complementary releases:
 | **Syntactic SQL Validity** | High on simple queries | **80.9%** on noisy schemas (`heldout_sqale`), **98.0%** in-dist |
 | **Held-Out Generalization** | Not evaluated | Evaluated against unobserved benchmarks (`sqale`, `large_schema`) |
 
+---
+
+## 📊 Comprehensive Benchmark Results
+
+All evaluations use in-memory SQLite instances pre-populated with synthetic or gold `INSERT` rows to measure **execution correctness** (returning identical row sets) rather than mere superficial string matching.
+
 ### The Single-Source Overfitting Problem (v1.0 Diagnosis)
 In **QwerySmith 1.0**, the model was trained exclusively on 10,000 rows of `b-mc2/sql-create-context`. While in-distribution execution accuracy surged to **88.5%**, the model **regressed by -18%** on external test queries relative to the untouched base model:
 
