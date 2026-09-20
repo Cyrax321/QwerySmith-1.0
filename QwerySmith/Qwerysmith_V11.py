@@ -388,3 +388,93 @@ def stage_train(args, train_items):
     adapter_dir = out / "adapter"
     model, tok = load_model(args)
     model = FastLanguageModel.get_peft_model(
+        model,
+        r=args.rank,
+        lora_alpha=args.rank * 2,
+        lora_dropout=args.dropout,  # v1.1: was hardcoded to 0
+        bias="none",
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        use_gradient_checkpointing="unsloth",
+        random_state=SEED,
+    )
+    # Training text = the exact same prompt used at inference + the SQL answer.
+    # Matching train and inference formatting avoids the most common fine-tune bug.
+    texts = [
+        {"text": render_prompt(tok, build_messages(it)) + it["gold"] + END} for it in train_items
+    ]
+    ds = Dataset.from_list(texts)
+    print("Example training text:\n" + "-" * 40 + "\n" + ds[0]["text"] + "\n" + "-" * 40)
+
+    use_bf16 = torch.cuda.is_bf16_supported()
+    cfg = dict(
+        dataset_text_field="text",
+        per_device_train_batch_size=args.batch_size,
+        gradient_accumulation_steps=args.grad_accum,
+        num_train_epochs=args.epochs,
+        max_steps=args.max_steps,
+        learning_rate=args.lr,
+        warmup_steps=10,
+        lr_scheduler_type="cosine",
+        optim="adamw_8bit",
+        weight_decay=0.01,
+        fp16=not use_bf16,
+        bf16=use_bf16,
+        logging_steps=10,
+        # v1.1: optional periodic checkpointing so the best checkpoint can be
+        # picked by eval instead of always taking the final step.
+        save_strategy="steps" if args.save_steps else "no",
+        save_steps=args.save_steps or 500,
+        save_total_limit=6,
+        output_dir=str(out / "trainer"),
+        report_to="none",
+        seed=SEED,
+        dataset_num_proc=2,
+    )
+    sft_cfg = None
+    for len_key in ("max_seq_length", "max_length"):  # TRL renamed this argument
+        try:
+            sft_cfg = SFTConfig(**cfg, **{len_key: args.max_len})
+            break
+        except TypeError:
+            continue
+    if sft_cfg is None:
+        raise RuntimeError("Could not build SFTConfig. Check your TRL version.")
+    trainer = None
+    for tok_key in ("processing_class", "tokenizer"):  # TRL renamed this too
+        try:
+            trainer = SFTTrainer(model=model, train_dataset=ds, args=sft_cfg, **{tok_key: tok})
+            break
+        except TypeError:
+            continue
+    if trainer is None:
+        raise RuntimeError("Could not build SFTTrainer. Check your TRL version.")
+    sample = ds[0]["text"]
+    if INSTRUCTION_PART in sample and RESPONSE_PART in sample:
+        trainer = train_on_responses_only(
+            trainer, instruction_part=INSTRUCTION_PART, response_part=RESPONSE_PART
+        )
+        print("Loss masked to the SQL answer only.")
+    else:
+        print("WARNING: chat markers not found, training on the full text (no loss masking).")
+
+    t0 = time.time()
+    trainer.train()
+    print(f"Training took {(time.time() - t0) / 60:.1f} min")
+    (out / "train_log.json").write_text(json.dumps(trainer.state.log_history, indent=1))
+    model.save_pretrained(str(adapter_dir))
+    tok.save_pretrained(str(adapter_dir))
+    print(f"Adapter saved to {adapter_dir}")
+    return model, tok
+
+
+def stage_export(args, model, tok) -> None:
+    out = Path(args.out)
+    token = os.environ.get("HF_TOKEN")
+    if args.merge:
+        model.save_pretrained_merged(str(out / "merged_16bit"), tok, save_method="merged_16bit")
+        print("Merged 16-bit model saved.")
+    if args.gguf:
+        model.save_pretrained_gguf(str(out / "gguf"), tok, quantization_method="q4_k_m")
+        print("GGUF saved (q4_k_m).")
+    if args.push:
+        if not token:
