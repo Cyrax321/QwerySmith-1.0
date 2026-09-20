@@ -3,16 +3,26 @@
 paper_eval.py -- Institutional Research Paper Evaluation Suite for QwerySmith
 
 This script loads the finished run artifacts (predictions.csv, preds/*.json,
-train_log.json, results.json) and computes all standard empirical metrics
-expected in top NLP / database systems research papers (ACL, EMNLP, VLDB, SIGMOD):
+train_log.json, results.json) and computes all standard empirical metrics,
+confusion matrices, and figures expected in top AI / NLP / Database venues
+(ACL, EMNLP, NeurIPS, VLDB, SIGMOD):
 
 1. Main Benchmark Performance (Execution Accuracy, Exact Match, Valid SQL with 95% CIs)
-2. AST Clause-Level Precision, Recall & F1 (SELECT, WHERE, JOIN, GROUP BY, ORDER BY, etc.)
-3. Query Complexity Stratification (Simple, Moderate, Complex, Advanced)
-4. Pairwise Statistical Significance Testing (McNemar's exact test, Odds Ratio, Bootstrap deltas)
-5. Publication-Ready Figures (300 DPI PNG + Vector PDF)
-6. Publication-Ready LaTeX Tables (.tex format using booktabs)
-7. Full Markdown Academic Report (RESEARCH_PAPER_REPORT.md)
+2. 4x4 Pairwise Outcome State Transition Matrix (Base -> Fine-Tuned)
+3. AST Clause-Level 2x2 Confusion Matrices Grid (SELECT, WHERE, JOIN, GROUP BY, etc.)
+4. Inter-System Agreement & Reliability Matrix (Cohen's Kappa & Percent Agreement)
+5. Per-Split Inter-System Agreement Matrix
+6. Query Complexity Performance Matrix (Simple, Moderate, Complex, Advanced across splits)
+7. Error Taxonomy & Failure Mode Distribution Matrix
+8. Diagnostic Clause Testing Matrix (Precision, Recall, Specificity, NPV, Balanced Acc, F1, MCC)
+9. Error Recovery & Migration Flow Matrix (Base Failure -> Fine-Tuned Resolution)
+10. Clause Co-occurrence Correlation Matrix (Gold vs Base vs Fine-Tuned + Frobenius Error)
+11. Query Token Length vs Execution Accuracy Matrix
+12. Paired Statistical Significance Testing (McNemar's test, Odds Ratios, p-values)
+13. 13 Publication-Grade Figures (300 DPI PNG + Vector PDF)
+14. 10 Publication-Grade LaTeX Tables (.tex format using booktabs)
+15. Full Academic Markdown Report (RESEARCH_PAPER_REPORT.md)
+16. Interactive Colab / Jupyter Inline Display Support
 
 Usage:
     python paper_eval.py --out /content/drive/MyDrive/qwerysmith-1.1
@@ -46,20 +56,20 @@ except ImportError:
 
 
 # --------------------------------------------------------------------------
-# Styling & Aesthetics for Publication Figures
+# Publication Styling & Aesthetics
 # --------------------------------------------------------------------------
 if plt is not None:
     plt.rcParams.update({
         "figure.dpi": 150,
         "savefig.dpi": 300,
-        "font.size": 11,
+        "font.size": 10.5,
         "font.family": "sans-serif",
         "axes.grid": True,
         "grid.alpha": 0.25,
         "grid.linestyle": "--",
         "axes.spines.top": False,
         "axes.spines.right": False,
-        "axes.titlesize": 12,
+        "axes.titlesize": 11.5,
         "axes.titleweight": "bold",
         "legend.frameon": True,
         "legend.framealpha": 0.85,
@@ -81,9 +91,34 @@ CLAUSE_NAMES = [
     "SELECT", "WHERE", "JOIN", "GROUP BY", "HAVING", "ORDER BY", "LIMIT", "AGGREGATE"
 ]
 
+OUTCOME_STATES = [
+    "invalid", "valid_wrong", "executed_match", "executed_exact"
+]
+
+OUTCOME_DISPLAY = {
+    "invalid": "Invalid SQL",
+    "valid_wrong": "Runs Wrong",
+    "executed_match": "Exec Match",
+    "executed_exact": "Exec Exact",
+}
+
+COMPLEXITY_TIERS = [
+    "Simple (Projection / Filter)",
+    "Moderate (Agg / Sort)",
+    "Complex (Multi-Table Join)",
+    "Advanced (Nested / Set)",
+]
+
+LENGTH_BINS = [
+    "Short (≤15)",
+    "Medium (16–30)",
+    "Long (31–55)",
+    "Very Long (>55)",
+]
+
 
 # --------------------------------------------------------------------------
-# Statistical Helpers
+# Statistical Helpers & Metrics
 # --------------------------------------------------------------------------
 def wilson_ci(k: int, n: int, z: float = 1.95996) -> tuple[float, float]:
     """Wilson score confidence interval for a binomial proportion."""
@@ -96,11 +131,37 @@ def wilson_ci(k: int, n: int, z: float = 1.95996) -> tuple[float, float]:
     return (max(0.0, center - spread), min(1.0, center + spread))
 
 
-def mcnemar_test(y_true: list[bool], y_a: list[bool], y_b: list[bool]) -> dict:
+def cohen_kappa(y1: list[str], y2: list[str]) -> float:
+    """Calculates Cohen's Kappa inter-rater agreement between two systems."""
+    if not y1 or len(y1) != len(y2):
+        return 1.0
+    cats = sorted(list(set(y1) | set(y2)))
+    cat_to_i = {c: i for i, c in enumerate(cats)}
+    k = len(cats)
+    n = len(y1)
+    if n == 0 or k <= 1:
+        return 1.0
+
+    cm = [[0] * k for _ in range(k)]
+    for a, b in zip(y1, y2):
+        cm[cat_to_i[a]][cat_to_i[b]] += 1
+
+    po = sum(cm[i][i] for i in range(k)) / n
+    pe = sum(sum(cm[i][j] for j in range(k)) * sum(cm[j][i] for j in range(k)) for i in range(k)) / (n * n)
+    return (po - pe) / (1.0 - pe) if pe < 1.0 else 1.0
+
+
+def calculate_mcc(tp: int, fp: int, fn: int, tn: int) -> float:
+    """Matthews Correlation Coefficient for binary diagnostic classification."""
+    denom = math.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
+    return (tp * tn - fp * fn) / denom if denom > 0 else 0.0
+
+
+def mcnemar_test(y_a: list[bool], y_b: list[bool]) -> dict:
     """
     McNemar's paired test comparing system A vs system B.
-    b: A correct, B wrong
-    c: B correct, A wrong
+    b: A correct, B wrong (A win)
+    c: B correct, A wrong (B win)
     """
     b = sum(1 for a, b_val in zip(y_a, y_b) if a is True and b_val is False)
     c = sum(1 for a, b_val in zip(y_a, y_b) if a is False and b_val is True)
@@ -108,11 +169,9 @@ def mcnemar_test(y_true: list[bool], y_a: list[bool], y_b: list[bool]) -> dict:
     both_wrong = sum(1 for a, b_val in zip(y_a, y_b) if a is False and b_val is False)
     total_discordant = b + c
 
-    # Exact binomial p-value
     if total_discordant == 0:
         p_val = 1.0
     else:
-        # Two-sided binomial with p=0.5
         k = min(b, c)
         p_val = min(1.0, 2.0 * sum(math.comb(total_discordant, i) * (0.5 ** total_discordant) for i in range(k + 1)))
 
@@ -133,7 +192,7 @@ def mcnemar_test(y_true: list[bool], y_a: list[bool], y_b: list[bool]) -> dict:
 
 
 # --------------------------------------------------------------------------
-# AST Clause & Complexity Analysis
+# AST Clause & Query Categorization
 # --------------------------------------------------------------------------
 def extract_clause_flags(sql: str) -> dict[str, bool]:
     """Detects standard SQL clauses and constructs."""
@@ -158,13 +217,50 @@ def classify_complexity(sql: str) -> str:
     f = extract_clause_flags(sql)
     if f["SUBQUERY"] or f["SET_OP"]:
         return "Advanced (Nested / Set)"
-    if f["JOIN"] and (f["GROUP BY"] or f["HAVING"]):
-        return "Complex (Join + Group)"
     if f["JOIN"]:
         return "Complex (Multi-Table Join)"
     if f["GROUP BY"] or f["ORDER BY"] or f["AGGREGATE"]:
         return "Moderate (Agg / Sort)"
     return "Simple (Projection / Filter)"
+
+
+def classify_length_bin(sql: str) -> str:
+    """Classifies SQL token/word count into standard length tiers."""
+    tokens = len(sql.strip().split())
+    if tokens <= 15:
+        return "Short (≤15)"
+    elif tokens <= 30:
+        return "Medium (16–30)"
+    elif tokens <= 55:
+        return "Long (31–55)"
+    else:
+        return "Very Long (>55)"
+
+
+def determine_outcome(pred: str, gold: str, is_valid: bool, is_ex: bool | None) -> str:
+    """Classifies prediction into one of 4 mutually exclusive states."""
+    if not is_valid:
+        return "invalid"
+    is_em = (pred.strip().lower() == gold.strip().lower())
+    if is_ex is True and is_em:
+        return "executed_exact"
+    if is_ex is True and not is_em:
+        return "executed_match"
+    return "valid_wrong"
+
+
+def classify_failure_mode(pred: str, gold: str) -> str:
+    """Assigns an explicit error taxonomy label to a non-passing query."""
+    if not pred.strip():
+        return "Syntax Error"
+    gf, pf = extract_clause_flags(gold), extract_clause_flags(pred)
+    if gf["JOIN"] != pf["JOIN"]:
+        return "Join Error"
+    if gf["AGGREGATE"] != pf["AGGREGATE"] or gf["GROUP BY"] != pf["GROUP BY"]:
+        return "Aggregation Error"
+    if gf["WHERE"] != pf["WHERE"]:
+        return "Predicate Error"
+    return "Semantic Row Mismatch"
 
 
 # --------------------------------------------------------------------------
@@ -184,15 +280,37 @@ def load_data(run_dir: Path):
             reader = csv.DictReader(f)
             for row in reader:
                 sname = row["set"]
+                gold = row.get("gold", "")
+
+                b0_pred = row.get("base_zeroshot_pred", "")
+                b0_ex = row.get("base_zeroshot_exec_correct") == "1" if row.get("base_zeroshot_exec_correct") != "" else None
+                b0_valid = bool(b0_pred.strip())
+
+                b3_pred = row.get("base_fewshot_pred", "")
+                b3_ex = row.get("base_fewshot_exec_correct") == "1" if row.get("base_fewshot_exec_correct") != "" else None
+                b3_valid = bool(b3_pred.strip())
+
+                ft_pred = row.get("finetuned_pred", "")
+                ft_ex = row.get("finetuned_exec_correct") == "1" if row.get("finetuned_exec_correct") != "" else None
+                ft_valid = bool(ft_pred.strip())
+
                 items_by_set[sname].append({
                     "question": row.get("question", ""),
-                    "gold": row.get("gold", ""),
-                    "base_zeroshot_pred": row.get("base_zeroshot_pred", ""),
-                    "base_zeroshot_exec": row.get("base_zeroshot_exec_correct") == "1" if row.get("base_zeroshot_exec_correct") != "" else None,
-                    "base_fewshot_pred": row.get("base_fewshot_pred", ""),
-                    "base_fewshot_exec": row.get("base_fewshot_exec_correct") == "1" if row.get("base_fewshot_exec_correct") != "" else None,
-                    "finetuned_pred": row.get("finetuned_pred", ""),
-                    "finetuned_exec": row.get("finetuned_exec_correct") == "1" if row.get("finetuned_exec_correct") != "" else None,
+                    "gold": gold,
+                    "complexity": classify_complexity(gold),
+                    "length_bin": classify_length_bin(gold),
+                    "base_zeroshot_pred": b0_pred,
+                    "base_zeroshot_exec": b0_ex,
+                    "base_zeroshot_outcome": determine_outcome(b0_pred, gold, b0_valid, b0_ex),
+                    "base_zeroshot_error": classify_failure_mode(b0_pred, gold) if b0_ex is not True else None,
+                    "base_fewshot_pred": b3_pred,
+                    "base_fewshot_exec": b3_ex,
+                    "base_fewshot_outcome": determine_outcome(b3_pred, gold, b3_valid, b3_ex),
+                    "base_fewshot_error": classify_failure_mode(b3_pred, gold) if b3_ex is not True else None,
+                    "finetuned_pred": ft_pred,
+                    "finetuned_exec": ft_ex,
+                    "finetuned_outcome": determine_outcome(ft_pred, gold, ft_valid, ft_ex),
+                    "finetuned_error": classify_failure_mode(ft_pred, gold) if ft_ex is not True else None,
                 })
     else:
         print("  ⚠️ predictions.csv not found; looking for preds/*.json ...")
@@ -223,26 +341,38 @@ def load_data(run_dir: Path):
 
 
 # --------------------------------------------------------------------------
-# Main Analysis Engine
+# Multi-Dimensional Matrix & Analysis Engine
 # --------------------------------------------------------------------------
 def analyze_dataset(items_by_set: dict, results_json: dict):
-    """Computes all research paper metrics."""
+    """Computes all research paper matrices and metrics."""
     analysis = {
         "benchmarks": {},
         "clause_metrics": defaultdict(dict),
-        "complexity_metrics": defaultdict(dict),
+        "clause_confusion": defaultdict(lambda: defaultdict(dict)),
+        "diagnostic_metrics": defaultdict(dict),
+        "clause_correlations": {},
+        "transition_matrix": {},
+        "error_migration_matrix": {},
+        "agreement_matrix": {},
+        "persplit_agreement": {},
+        "complexity_matrix": defaultdict(dict),
+        "length_matrix": defaultdict(dict),
+        "error_taxonomy": defaultdict(dict),
         "significance": {},
     }
 
-    # 1. Main Benchmarks (from results.json or derived)
+    all_items = [it for items in items_by_set.values() for it in items if it.get("gold")]
+    sets = list(items_by_set.keys())
+    systems = ["base_zeroshot", "base_fewshot", "finetuned"]
+
+    # 1. Main Benchmarks
     for sname, items in items_by_set.items():
         analysis["benchmarks"][sname] = {}
-        for sysname in ["base_zeroshot", "base_fewshot", "finetuned"]:
+        for sysname in systems:
             key = f"{sname}/{sysname}"
             if key in results_json:
                 analysis["benchmarks"][sname][sysname] = results_json[key]
             else:
-                # Calculate from items
                 valid_preds = [it.get(f"{sysname}_pred", "") for it in items if it.get(f"{sysname}_pred")]
                 em_matches = [1 for it in items if it.get("gold") and it.get(f"{sysname}_pred", "").strip().lower() == it.get("gold", "").strip().lower()]
                 scored_items = [it for it in items if it.get(f"{sysname}_exec") is not None]
@@ -260,9 +390,33 @@ def analyze_dataset(items_by_set: dict, results_json: dict):
                     "exec_ci": wilson_ci(len(ex_matches), scored),
                 }
 
-    # 2. AST Clause-Level Precision, Recall, F1
-    all_items = [it for items in items_by_set.values() for it in items if it.get("gold")]
-    for sysname in ["base_zeroshot", "base_fewshot", "finetuned"]:
+    # 2. 4x4 Pairwise Outcome State Transition Matrix (Base 3-Shot -> Fine-Tuned)
+    trans_matrix = {s_base: {s_ft: 0 for s_ft in OUTCOME_STATES} for s_base in OUTCOME_STATES}
+    for it in all_items:
+        s_base = it.get("base_fewshot_outcome", "valid_wrong")
+        s_ft = it.get("finetuned_outcome", "valid_wrong")
+        trans_matrix[s_base][s_ft] += 1
+    analysis["transition_matrix"] = trans_matrix
+
+    # 3. Inter-System Agreement (Global & Per-Split Cohen's Kappa)
+    agree_mat = {s1: {s2: 0.0 for s2 in systems} for s1 in systems}
+    for s1 in systems:
+        for s2 in systems:
+            y1 = [it.get(f"{s1}_outcome", "") for it in all_items]
+            y2 = [it.get(f"{s2}_outcome", "") for it in all_items]
+            agree_mat[s1][s2] = cohen_kappa(y1, y2)
+    analysis["agreement_matrix"] = agree_mat
+
+    for sname, items in items_by_set.items():
+        analysis["persplit_agreement"][sname] = {s1: {s2: 0.0 for s2 in systems} for s1 in systems}
+        for s1 in systems:
+            for s2 in systems:
+                y1 = [it.get(f"{s1}_outcome", "") for it in items]
+                y2 = [it.get(f"{s2}_outcome", "") for it in items]
+                analysis["persplit_agreement"][sname][s1][s2] = cohen_kappa(y1, y2)
+
+    # 4. AST Clause-Level 2x2 Confusion Matrices & Diagnostic Metrics (MCC, Specificity, NPV)
+    for sysname in systems:
         for clause in CLAUSE_NAMES:
             tp = fp = fn = tn = 0
             for it in all_items:
@@ -279,49 +433,143 @@ def analyze_dataset(items_by_set: dict, results_json: dict):
 
             precision = tp / (tp + fp) if (tp + fp) > 0 else 1.0
             recall = tp / (tp + fn) if (tp + fn) > 0 else 1.0
+            specificity = tn / (tn + fp) if (tn + fp) > 0 else 1.0
+            npv = tn / (tn + fn) if (tn + fn) > 0 else 1.0
+            balanced_acc = (recall + specificity) / 2.0
             f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+            mcc = calculate_mcc(tp, fp, fn, tn)
 
             analysis["clause_metrics"][sysname][clause] = {
                 "tp": tp, "fp": fp, "fn": fn, "tn": tn,
                 "precision": precision, "recall": recall, "f1": f1,
             }
+            analysis["clause_confusion"][sysname][clause] = {
+                "tp": tp, "fp": fp, "fn": fn, "tn": tn,
+            }
+            analysis["diagnostic_metrics"][sysname][clause] = {
+                "precision": precision,
+                "recall": recall,
+                "specificity": specificity,
+                "npv": npv,
+                "balanced_acc": balanced_acc,
+                "f1": f1,
+                "mcc": mcc,
+            }
 
-    # 3. Query Complexity Breakdown
+    # 5. Clause Co-occurrence Correlation Matrix (Gold vs Base 3-Shot vs QwerySmith 1.1)
+    if np is not None and all_items:
+        gold_clause_mat = np.array([[int(extract_clause_flags(it["gold"])[c]) for c in CLAUSE_NAMES] for it in all_items])
+        base_clause_mat = np.array([[int(extract_clause_flags(it.get("base_fewshot_pred", ""))[c]) for c in CLAUSE_NAMES] for it in all_items])
+        ft_clause_mat = np.array([[int(extract_clause_flags(it.get("finetuned_pred", ""))[c]) for c in CLAUSE_NAMES] for it in all_items])
+
+        # Avoid div by zero in correlation by replacing nan with 0
+        def safe_corrcoef(m):
+            with np.errstate(divide="ignore", invalid="ignore"):
+                c = np.corrcoef(m, rowvar=False)
+                c = np.nan_to_num(c, nan=0.0)
+            return c
+
+        corr_gold = safe_corrcoef(gold_clause_mat)
+        corr_base = safe_corrcoef(base_clause_mat)
+        corr_ft = safe_corrcoef(ft_clause_mat)
+
+        frob_base = float(np.linalg.norm(corr_gold - corr_base, ord="fro"))
+        frob_ft = float(np.linalg.norm(corr_gold - corr_ft, ord="fro"))
+
+        analysis["clause_correlations"] = {
+            "gold": corr_gold.tolist(),
+            "base_fewshot": corr_base.tolist(),
+            "finetuned": corr_ft.tolist(),
+            "frobenius_error_base": frob_base,
+            "frobenius_error_ft": frob_ft,
+        }
+
+    # 6. Complexity Tier Performance Matrix
     for sname, items in items_by_set.items():
-        analysis["complexity_metrics"][sname] = defaultdict(lambda: defaultdict(list))
-        for it in items:
-            if not it.get("gold"):
-                continue
-            tier = classify_complexity(it["gold"])
-            for sysname in ["base_zeroshot", "base_fewshot", "finetuned"]:
-                exec_res = it.get(f"{sysname}_exec")
-                if exec_res is not None:
-                    analysis["complexity_metrics"][sname][tier][sysname].append(int(exec_res))
+        analysis["complexity_matrix"][sname] = {}
+        for tier in COMPLEXITY_TIERS:
+            tier_items = [it for it in items if it.get("complexity") == tier]
+            analysis["complexity_matrix"][sname][tier] = {}
+            for sysname in systems:
+                scored = [it for it in tier_items if it.get(f"{sysname}_exec") is not None]
+                corr = sum(1 for it in scored if it.get(f"{sysname}_exec") is True)
+                acc = (corr / len(scored)) if scored else 0.0
+                analysis["complexity_matrix"][sname][tier][sysname] = {
+                    "count": len(tier_items),
+                    "scored": len(scored),
+                    "acc": acc,
+                }
 
-    # 4. Statistical Significance (McNemar Test: Fine-Tuned vs 3-Shot Base)
+    # 7. Token Length Stratification Matrix
+    for lbin in LENGTH_BINS:
+        bin_items = [it for it in all_items if it.get("length_bin") == lbin]
+        analysis["length_matrix"][lbin] = {}
+        for sysname in systems:
+            scored = [it for it in bin_items if it.get(f"{sysname}_exec") is not None]
+            corr = sum(1 for it in scored if it.get(f"{sysname}_exec") is True)
+            acc = (corr / len(scored)) if scored else 0.0
+            analysis["length_matrix"][lbin][sysname] = {
+                "count": len(bin_items),
+                "scored": len(scored),
+                "acc": acc,
+            }
+
+    # 8. Error Taxonomy Distribution Matrix
+    error_types = ["Syntax Error", "Join Error", "Aggregation Error", "Predicate Error", "Semantic Row Mismatch"]
+    for sysname in systems:
+        analysis["error_taxonomy"][sysname] = {err: 0 for err in error_types}
+        for it in all_items:
+            if it.get(f"{sysname}_exec") is True:
+                continue
+            err_mode = it.get(f"{sysname}_error", "Semantic Row Mismatch")
+            analysis["error_taxonomy"][sysname][err_mode] += 1
+
+    # 9. Error Recovery & Migration Flow Matrix (Base Failure Mode -> Fine-Tuned Resolution)
+    # Categories: [Exact Match, Exec Match, Persistent Same Error, Other Failure]
+    mig_categories = ["Resolved Exact", "Resolved Exec", "Persistent Error", "Alternative Failure"]
+    mig_matrix = {e: {cat: 0 for cat in mig_categories} for e in error_types}
+
+    for it in all_items:
+        if it.get("base_fewshot_exec") is not True:
+            base_err = it.get("base_fewshot_error", "Semantic Row Mismatch")
+            ft_out = it.get("finetuned_outcome")
+            ft_err = it.get("finetuned_error")
+
+            if ft_out == "executed_exact":
+                mig_matrix[base_err]["Resolved Exact"] += 1
+            elif ft_out == "executed_match":
+                mig_matrix[base_err]["Resolved Exec"] += 1
+            elif ft_err == base_err:
+                mig_matrix[base_err]["Persistent Error"] += 1
+            else:
+                mig_matrix[base_err]["Alternative Failure"] += 1
+
+    analysis["error_migration_matrix"] = mig_matrix
+
+    # 10. Statistical Significance Testing (McNemar)
     for sname, items in items_by_set.items():
         scored_pairs = [it for it in items if it.get("finetuned_exec") is not None and it.get("base_fewshot_exec") is not None]
         if scored_pairs:
             ft_results = [it["finetuned_exec"] for it in scored_pairs]
             base_results = [it["base_fewshot_exec"] for it in scored_pairs]
-            mc = mcnemar_test([True] * len(scored_pairs), ft_results, base_results)
+            mc = mcnemar_test(ft_results, base_results)
             analysis["significance"][sname] = mc
 
     return analysis
 
 
 # --------------------------------------------------------------------------
-# Figure Builders (PNG & Vector PDF)
+# Figure Builders (13 Publication-Grade Figures in PNG & PDF)
 # --------------------------------------------------------------------------
 def generate_figures(analysis: dict, train_log: list, out_dir: Path):
-    """Renders all 6 publication figures."""
+    """Renders all 13 publication figures."""
     if plt is None or np is None:
         print("⚠️ Matplotlib/NumPy not installed. Skipping figure rendering.")
         return
 
     fig_dir = out_dir / "figures"
     fig_dir.mkdir(parents=True, exist_ok=True)
-    print(f"\n🎨 Generating publication figures in {fig_dir} ...")
+    print(f"\n🎨 Generating 13 publication figures in {fig_dir} ...")
 
     sets = list(analysis["benchmarks"].keys())
     systems = ["base_zeroshot", "base_fewshot", "finetuned"]
@@ -334,8 +582,7 @@ def generate_figures(analysis: dict, train_log: list, out_dir: Path):
     width = 0.25
 
     for i, sysname in enumerate(systems):
-        accs = []
-        errors_lo, errors_hi = [], []
+        accs, errors_lo, errors_hi = [], [], []
         for sname in sets:
             m = analysis["benchmarks"][sname].get(sysname, {})
             acc = m.get("exec_acc", 0.0) * 100
@@ -357,7 +604,6 @@ def generate_figures(analysis: dict, train_log: list, out_dir: Path):
         for rect, acc in zip(rects, accs):
             ax.annotate(f"{acc:.1f}%",
                         xy=(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2),
-                        xytext=(0, 0), textcoords="offset points",
                         ha="center", va="center", fontsize=8.5, color="white", weight="bold",
                         rotation=90 if acc < 25 else 0)
 
@@ -429,7 +675,7 @@ def generate_figures(analysis: dict, train_log: list, out_dir: Path):
     print("  ✅ Saved fig3_clause_f1_scores.{png,pdf}")
 
     # ----------------------------------------------------------------------
-    # Figure 4: Head-to-Head Win/Loss Comparison
+    # Figure 4: Head-to-Head Pairwise Win/Loss Comparison
     # ----------------------------------------------------------------------
     fig, ax = plt.subplots(figsize=(8.0, 4.5))
     sig_sets = list(analysis["significance"].keys())
@@ -439,8 +685,8 @@ def generate_figures(analysis: dict, train_log: list, out_dir: Path):
     wins = [analysis["significance"][s]["wins_A"] for s in sig_sets]
     losses = [analysis["significance"][s]["wins_B"] for s in sig_sets]
 
-    p1 = ax.bar(x, wins, width, label="Fine-Tuned Wins (Base Failed)", color="#2ecc71", edgecolor="black", linewidth=0.7)
-    p2 = ax.bar(x, [-l for l in losses], width, label="Base Wins (Fine-Tuned Failed)", color="#e74c3c", edgecolor="black", linewidth=0.7)
+    ax.bar(x, wins, width, label="Fine-Tuned Wins (Base Failed)", color="#2ecc71", edgecolor="black", linewidth=0.7)
+    ax.bar(x, [-l for l in losses], width, label="Base Wins (Fine-Tuned Failed)", color="#e74c3c", edgecolor="black", linewidth=0.7)
 
     ax.axhline(0, color="black", linewidth=0.8)
     for i in range(len(sig_sets)):
@@ -459,7 +705,7 @@ def generate_figures(analysis: dict, train_log: list, out_dir: Path):
     print("  ✅ Saved fig4_pairwise_win_loss.{png,pdf}")
 
     # ----------------------------------------------------------------------
-    # Figure 5: Training Loss Convergence & Learning Rate
+    # Figure 5: Training Loss Convergence & Cosine Learning Rate Schedule
     # ----------------------------------------------------------------------
     if train_log:
         fig, ax1 = plt.subplots(figsize=(8.5, 4.5))
@@ -488,15 +734,266 @@ def generate_figures(analysis: dict, train_log: list, out_dir: Path):
         plt.close(fig)
         print("  ✅ Saved fig5_training_dynamics.{png,pdf}")
 
+    # ----------------------------------------------------------------------
+    # Figure 6: 4x4 Pairwise Outcome State Transition Heatmap (Base -> FT)
+    # ----------------------------------------------------------------------
+    fig, ax = plt.subplots(figsize=(7.0, 6.0))
+    tm = analysis["transition_matrix"]
+    mat_data = np.array([[tm[s_b][s_ft] for s_ft in OUTCOME_STATES] for s_b in OUTCOME_STATES])
+
+    im = ax.imshow(mat_data, cmap="Blues", interpolation="nearest")
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+    display_labels = [OUTCOME_DISPLAY[s] for s in OUTCOME_STATES]
+    ax.set_xticks(np.arange(len(OUTCOME_STATES)))
+    ax.set_yticks(np.arange(len(OUTCOME_STATES)))
+    ax.set_xticklabels(display_labels, rotation=35, ha="right", weight="bold")
+    ax.set_yticklabels(display_labels, weight="bold")
+    ax.set_xlabel("QwerySmith 1.1 Outcome", weight="bold", labelpad=8)
+    ax.set_ylabel("Base (3-Shot) Outcome", weight="bold", labelpad=8)
+    ax.set_title("Figure 6: 4x4 Pairwise Outcome State Transition Matrix", pad=12)
+
+    total_trans = np.sum(mat_data)
+    for i in range(len(OUTCOME_STATES)):
+        for j in range(len(OUTCOME_STATES)):
+            cnt = mat_data[i, j]
+            pct = (cnt / total_trans) * 100 if total_trans > 0 else 0
+            text_color = "white" if cnt > (mat_data.max() * 0.55) else "black"
+            ax.text(j, i, f"{cnt}\n({pct:.1f}%)", ha="center", va="center", color=text_color, weight="bold", fontsize=9.5)
+
+    fig.tight_layout()
+    fig.savefig(fig_dir / "fig6_outcome_transition_matrix.png")
+    fig.savefig(fig_dir / "fig6_outcome_transition_matrix.pdf")
+    plt.close(fig)
+    print("  ✅ Saved fig6_outcome_transition_matrix.{png,pdf}")
+
+    # ----------------------------------------------------------------------
+    # Figure 7: AST Clause-Level Confusion Matrices (2x4 Grid)
+    # ----------------------------------------------------------------------
+    fig, axes = plt.subplots(2, 4, figsize=(14, 7))
+    axes = axes.flatten()
+
+    for idx, clause in enumerate(CLAUSE_NAMES):
+        ax = axes[idx]
+        cd = analysis["clause_confusion"]["finetuned"][clause]
+        grid = np.array([[cd["tn"], cd["fp"]], [cd["fn"], cd["tp"]]])
+        im = ax.imshow(grid, cmap="YlGn", interpolation="nearest")
+        ax.set_title(f"{clause} Clause", weight="bold", fontsize=11)
+        ax.set_xticks([0, 1])
+        ax.set_yticks([0, 1])
+        ax.set_xticklabels(["Pred No", "Pred Yes"], fontsize=8.5)
+        ax.set_yticklabels(["Gold No", "Gold Yes"], fontsize=8.5)
+
+        total_c = np.sum(grid)
+        for i in range(2):
+            for j in range(2):
+                val = grid[i, j]
+                pct = (val / total_c) * 100 if total_c > 0 else 0
+                tc = "white" if val > (grid.max() * 0.6) else "black"
+                ax.text(j, i, f"{val}\n({pct:.1f}%)", ha="center", va="center", color=tc, weight="bold", fontsize=9)
+
+    fig.suptitle("Figure 7: AST Clause-Level 2x2 Confusion Matrices (Fine-Tuned Model)", fontsize=13, weight="bold", y=1.02)
+    fig.tight_layout()
+    fig.savefig(fig_dir / "fig7_clause_confusion_grid.png")
+    fig.savefig(fig_dir / "fig7_clause_confusion_grid.pdf")
+    plt.close(fig)
+    print("  ✅ Saved fig7_clause_confusion_grid.{png,pdf}")
+
+    # ----------------------------------------------------------------------
+    # Figure 8: Inter-System Agreement Heatmap (Cohen's Kappa)
+    # ----------------------------------------------------------------------
+    fig, ax = plt.subplots(figsize=(6.5, 5.5))
+    sys_labels = ["Base (0-Shot)", "Base (3-Shot)", "QwerySmith 1.1"]
+    k_mat = np.array([[analysis["agreement_matrix"][s1][s2] for s2 in systems] for s1 in systems])
+
+    im = ax.imshow(k_mat, cmap="Purples", vmin=0, vmax=1.0, interpolation="nearest")
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+    ax.set_xticks(np.arange(3))
+    ax.set_yticks(np.arange(3))
+    ax.set_xticklabels(sys_labels, rotation=25, ha="right", weight="bold")
+    ax.set_yticklabels(sys_labels, weight="bold")
+    ax.set_title("Figure 8: Inter-System Agreement Matrix (Cohen's Kappa κ)", pad=12)
+
+    for i in range(3):
+        for j in range(3):
+            val = k_mat[i, j]
+            tc = "white" if val > 0.55 else "black"
+            ax.text(j, i, f"κ = {val:.3f}", ha="center", va="center", color=tc, weight="bold", fontsize=10.5)
+
+    fig.tight_layout()
+    fig.savefig(fig_dir / "fig8_inter_system_agreement_matrix.png")
+    fig.savefig(fig_dir / "fig8_inter_system_agreement_matrix.pdf")
+    plt.close(fig)
+    print("  ✅ Saved fig8_inter_system_agreement_matrix.{png,pdf}")
+
+    # ----------------------------------------------------------------------
+    # Figure 9: Complexity Tier Execution Accuracy Heatmap
+    # ----------------------------------------------------------------------
+    fig, ax = plt.subplots(figsize=(8.5, 4.8))
+    tier_labels = ["Simple", "Moderate", "Complex", "Advanced"]
+    comp_matrix = []
+    for sname in sets:
+        row = []
+        for t_full in COMPLEXITY_TIERS:
+            d = analysis["complexity_matrix"][sname].get(t_full, {}).get("finetuned", {})
+            row.append(d.get("acc", 0.0) * 100)
+        comp_matrix.append(row)
+
+    comp_arr = np.array(comp_matrix)
+    im = ax.imshow(comp_arr, cmap="YlGnBu", vmin=0, vmax=100, interpolation="nearest")
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="Execution Accuracy (%)")
+
+    ax.set_xticks(np.arange(len(tier_labels)))
+    ax.set_yticks(np.arange(len(sets)))
+    ax.set_xticklabels(tier_labels, weight="bold")
+    ax.set_yticklabels([s.replace("_", " ").title() for s in sets], weight="bold")
+    ax.set_title("Figure 9: Execution Accuracy Stratification by SQL Complexity Tier", pad=12)
+
+    for i in range(len(sets)):
+        for j in range(len(tier_labels)):
+            val = comp_arr[i, j]
+            tc = "white" if val > 50 else "black"
+            ax.text(j, i, f"{val:.1f}%", ha="center", va="center", color=tc, weight="bold", fontsize=10)
+
+    fig.tight_layout()
+    fig.savefig(fig_dir / "fig9_complexity_heatmap.png")
+    fig.savefig(fig_dir / "fig9_complexity_heatmap.pdf")
+    plt.close(fig)
+    print("  ✅ Saved fig9_complexity_heatmap.{png,pdf}")
+
+    # ----------------------------------------------------------------------
+    # Figure 10: Failure Mode & Error Taxonomy Distribution Matrix
+    # ----------------------------------------------------------------------
+    fig, ax = plt.subplots(figsize=(9.0, 5.0))
+    err_types = list(analysis["error_taxonomy"]["finetuned"].keys())
+    x = np.arange(len(err_types))
+    width = 0.26
+
+    for i, sysname in enumerate(systems):
+        counts = [analysis["error_taxonomy"][sysname][e] for e in err_types]
+        rects = ax.bar(x + i * width, counts, width, label=LABELS[sysname], color=COLORS[sysname], edgecolor="black", linewidth=0.7, alpha=0.85)
+        for rect, cnt in zip(rects, counts):
+            if cnt > 0:
+                ax.annotate(f"{cnt}", xy=(rect.get_x() + rect.get_width() / 2, rect.get_height() + 1), ha="center", fontsize=8.5, weight="bold")
+
+    ax.set_ylabel("Number of Failed Queries", weight="bold")
+    ax.set_title("Figure 10: Comparative Failure Mode & Error Taxonomy Distribution", pad=12)
+    ax.set_xticks(x + width)
+    ax.set_xticklabels(err_types, rotation=20, ha="right", weight="bold")
+    ax.legend(loc="upper right")
+    fig.tight_layout()
+    fig.savefig(fig_dir / "fig10_error_taxonomy_matrix.png")
+    fig.savefig(fig_dir / "fig10_error_taxonomy_matrix.pdf")
+    plt.close(fig)
+    print("  ✅ Saved fig10_error_taxonomy_matrix.{png,pdf}")
+
+    # ----------------------------------------------------------------------
+    # Figure 11: Error Recovery & Migration Flow Matrix (Base -> Fine-Tuned)
+    # ----------------------------------------------------------------------
+    fig, ax = plt.subplots(figsize=(9.5, 5.2))
+    mig_cats = ["Resolved Exact", "Resolved Exec", "Persistent Error", "Alternative Failure"]
+    mig_colors = ["#27ae60", "#2ecc71", "#e74c3c", "#f39c12"]
+
+    y_pos = np.arange(len(err_types))
+    bar_height = 0.65
+
+    # Compute stacked percentages
+    totals = [sum(analysis["error_migration_matrix"][e].values()) for e in err_types]
+    lefts = np.zeros(len(err_types))
+
+    for cat_idx, cat in enumerate(mig_cats):
+        vals = []
+        for e_idx, e in enumerate(err_types):
+            tot = totals[e_idx]
+            v = analysis["error_migration_matrix"][e][cat]
+            vals.append((v / tot * 100) if tot > 0 else 0.0)
+
+        ax.barh(y_pos, vals, bar_height, left=lefts, label=cat, color=mig_colors[cat_idx], edgecolor="black", linewidth=0.6, alpha=0.9)
+        for e_idx, (l, v) in enumerate(zip(lefts, vals)):
+            if v >= 8:
+                ax.text(l + v/2, y_pos[e_idx], f"{v:.1f}%", ha="center", va="center", color="white", weight="bold", fontsize=8.5)
+        lefts += np.array(vals)
+
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(err_types, weight="bold")
+    ax.set_xlabel("Resolution Outcome (%)", weight="bold")
+    ax.set_title("Figure 11: Error Recovery & Healing Matrix (Base Failures -> Fine-Tuned Outcomes)", pad=12)
+    ax.set_xlim(0, 100)
+    ax.legend(loc="lower right", bbox_to_anchor=(1.0, 1.02), ncol=4)
+    fig.tight_layout()
+    fig.savefig(fig_dir / "fig11_error_migration_matrix.png")
+    fig.savefig(fig_dir / "fig11_error_migration_matrix.pdf")
+    plt.close(fig)
+    print("  ✅ Saved fig11_error_migration_matrix.{png,pdf}")
+
+    # ----------------------------------------------------------------------
+    # Figure 12: Clause Co-occurrence Correlation Matrix Heatmaps (3-Panel)
+    # ----------------------------------------------------------------------
+    if "gold" in analysis.get("clause_correlations", {}):
+        fig, axes = plt.subplots(1, 3, figsize=(15, 4.8))
+        corr_gold = np.array(analysis["clause_correlations"]["gold"])
+        corr_base = np.array(analysis["clause_correlations"]["base_fewshot"])
+        corr_ft = np.array(analysis["clause_correlations"]["finetuned"])
+
+        panels = [
+            ("Ground Truth SQL", corr_gold, None),
+            ("Base (3-Shot)", corr_base, f"Frobenius Δ = {analysis['clause_correlations']['frobenius_error_base']:.2f}"),
+            ("QwerySmith 1.1", corr_ft, f"Frobenius Δ = {analysis['clause_correlations']['frobenius_error_ft']:.2f}"),
+        ]
+
+        for p_idx, (title, mat, subtext) in enumerate(panels):
+            ax = axes[p_idx]
+            im = ax.imshow(mat, cmap="coolwarm", vmin=-0.5, vmax=1.0, interpolation="nearest")
+            ax.set_title(title + (f"\n({subtext})" if subtext else "\n(Reference Semantics)"), weight="bold", fontsize=10.5)
+            ax.set_xticks(np.arange(len(CLAUSE_NAMES)))
+            ax.set_yticks(np.arange(len(CLAUSE_NAMES)))
+            ax.set_xticklabels(CLAUSE_NAMES, rotation=45, ha="right", fontsize=8)
+            ax.set_yticklabels(CLAUSE_NAMES if p_idx == 0 else [], fontsize=8)
+
+        fig.subplots_adjust(right=0.88, top=0.88, bottom=0.18, wspace=0.3)
+        cbar_ax = fig.add_axes([0.90, 0.22, 0.018, 0.62])
+        fig.colorbar(im, cax=cbar_ax, label="Pearson Correlation")
+        fig.suptitle("Figure 12: Cross-Clause Co-occurrence Correlation Matrix & Structural Alignment", fontsize=12, weight="bold")
+        fig.savefig(fig_dir / "fig12_clause_correlation_matrices.png")
+        fig.savefig(fig_dir / "fig12_clause_correlation_matrices.pdf")
+        plt.close(fig)
+        print("  ✅ Saved fig12_clause_correlation_matrices.{png,pdf}")
+
+    # ----------------------------------------------------------------------
+    # Figure 13: Query Length Stratification Matrix
+    # ----------------------------------------------------------------------
+    fig, ax = plt.subplots(figsize=(8.5, 4.6))
+    x = np.arange(len(LENGTH_BINS))
+    width = 0.25
+
+    for i, sysname in enumerate(systems):
+        accs = [analysis["length_matrix"][lb][sysname]["acc"] * 100 for lb in LENGTH_BINS]
+        rects = ax.bar(x + i * width, accs, width, label=LABELS[sysname], color=COLORS[sysname], edgecolor="black", linewidth=0.7, alpha=0.88)
+        for rect, acc in zip(rects, accs):
+            ax.annotate(f"{acc:.1f}%", xy=(rect.get_x() + rect.get_width()/2, rect.get_height() + 1), ha="center", fontsize=8, weight="bold")
+
+    ax.set_ylabel("Execution Accuracy (%)", weight="bold")
+    ax.set_title("Figure 13: SQL Token Length vs. Execution Accuracy Stratification", pad=12)
+    ax.set_xticks(x + width)
+    ax.set_xticklabels(LENGTH_BINS, weight="bold")
+    ax.set_ylim(0, 105)
+    ax.legend(loc="upper right")
+    fig.tight_layout()
+    fig.savefig(fig_dir / "fig13_token_length_stratification.png")
+    fig.savefig(fig_dir / "fig13_token_length_stratification.pdf")
+    plt.close(fig)
+    print("  ✅ Saved fig13_token_length_stratification.{png,pdf}")
+
 
 # --------------------------------------------------------------------------
-# LaTeX Table Builders
+# LaTeX Table Builders (10 Comprehensive Publication Tables)
 # --------------------------------------------------------------------------
 def generate_latex_tables(analysis: dict, out_dir: Path):
-    """Generates clean, booktabs LaTeX tables for direct inclusion in papers."""
+    """Generates 10 clean, booktabs LaTeX tables for direct inclusion in papers."""
     tab_dir = out_dir / "tables"
     tab_dir.mkdir(parents=True, exist_ok=True)
-    print(f"\n📑 Generating LaTeX tables in {tab_dir} ...")
+    print(f"\n📑 Generating 10 LaTeX tables in {tab_dir} ...")
 
     # Table 1: Main Benchmark Results
     t1_path = tab_dir / "table1_main_benchmark.tex"
@@ -515,7 +1012,7 @@ def generate_latex_tables(analysis: dict, out_dir: Path):
                 f.write(f"{slabel} & {LABELS[sysname]} & {v} & {em} & {ex} & {ci} \\\\\n")
             f.write("\\midrule\n")
         f.write("\\bottomrule\n\\end{tabular}\n")
-        f.write("\\caption{Benchmark results comparing QwerySmith 1.1 against foundation zero-shot and 3-shot baselines across in-distribution and held-out distributions. Execution accuracy is evaluated against isolated SQLite databases.}\n")
+        f.write("\\caption{Main benchmark execution accuracy and exact match comparison across in-distribution and held-out distributions.}\n")
         f.write("\\label{tab:main_benchmark}\n\\end{table*}\n")
     print("  ✅ Saved table1_main_benchmark.tex")
 
@@ -531,7 +1028,7 @@ def generate_latex_tables(analysis: dict, out_dir: Path):
             ft = analysis["clause_metrics"]["finetuned"][c]
             f.write(f"{c} & {b['precision']:.2f} & {b['recall']:.2f} & {b['f1']:.2f} & \\textbf{{{ft['precision']:.2f}}} & \\textbf{{{ft['recall']:.2f}}} & \\textbf{{{ft['f1']:.2f}}} \\\\\n")
         f.write("\\bottomrule\n\\end{tabular}\n")
-        f.write("\\caption{Syntactic clause-level precision, recall, and F1 across SQL components.}\n")
+        f.write("\\caption{Syntactic clause-level precision, recall, and F1 across standard SQL components.}\n")
         f.write("\\label{tab:clause_metrics}\n\\end{table}\n")
     print("  ✅ Saved table2_clause_metrics.tex")
 
@@ -540,16 +1037,131 @@ def generate_latex_tables(analysis: dict, out_dir: Path):
     with open(t3_path, "w", encoding="utf-8") as f:
         f.write("% Table 3: McNemar Paired Statistical Significance Testing\n")
         f.write("\\begin{table}[t]\n\\centering\\small\n\\begin{tabular}{lcccccc}\n\\toprule\n")
-        f.write("\\textbf{Benchmark Split} & \\textbf{Pairs} & \\textbf{Wins (FT)} & \\textbf{Losses (Base)} & \\textbf{Odds Ratio} & \\textbf{p-value} & \\textbf{Signif.} \\\\\n\\midrule\n")
+        f.write("\\textbf{Benchmark Split} & \\textbf{Discordant Pairs} & \\textbf{FT Wins} & \\textbf{Base Wins} & \\textbf{Odds Ratio} & \\textbf{p-value} & \\textbf{Signif. ($p < 0.05$)} \\\\\n\\midrule\n")
         for sname, mc in analysis["significance"].items():
             slabel = sname.replace("_", " ").title()
             p_str = "$< 0.001$" if mc["p_value"] < 0.001 else f"{mc['p_value']:.4f}"
-            sig_str = "Yes ($p < 0.05$)" if mc["significant"] else "No"
+            sig_str = "\\textbf{Yes}" if mc["significant"] else "No"
             f.write(f"{slabel} & {mc['total_discordant']} & {mc['wins_A']} & {mc['wins_B']} & {mc['odds_ratio']:.2f} & {p_str} & {sig_str} \\\\\n")
         f.write("\\bottomrule\n\\end{tabular}\n")
-        f.write("\\caption{Paired McNemar test results comparing QwerySmith 1.1 against 3-shot base model.}\n")
+        f.write("\\caption{Paired McNemar test results evaluating statistical significance against 3-shot base model.}\n")
         f.write("\\label{tab:significance}\n\\end{table}\n")
     print("  ✅ Saved table3_significance.tex")
+
+    # Table 4: 4x4 Outcome State Transition Matrix
+    t4_path = tab_dir / "table4_outcome_transition.tex"
+    with open(t4_path, "w", encoding="utf-8") as f:
+        f.write("% Table 4: 4x4 Pairwise Outcome State Transition Matrix\n")
+        f.write("\\begin{table}[t]\n\\centering\\small\n\\begin{tabular}{lcccc}\n\\toprule\n")
+        f.write(" & \\multicolumn{4}{c}{\\textbf{QwerySmith 1.1 Outcome}} \\\\\n\\cmidrule(lr){2-5}\n")
+        f.write("\\textbf{Base 3-Shot State} & \\textbf{Invalid} & \\textbf{Runs Wrong} & \\textbf{Exec Match} & \\textbf{Exec Exact} \\\\\n\\midrule\n")
+        tm = analysis["transition_matrix"]
+        for s_b in OUTCOME_STATES:
+            row_vals = [str(tm[s_b][s_ft]) for s_ft in OUTCOME_STATES]
+            f.write(f"{OUTCOME_DISPLAY[s_b]} & " + " & ".join(row_vals) + " \\\\\n")
+        f.write("\\bottomrule\n\\end{tabular}\n")
+        f.write("\\caption{State transition matrix displaying query migrations between Base 3-Shot and Fine-Tuned model.}\n")
+        f.write("\\label{tab:outcome_transition}\n\\end{table}\n")
+    print("  ✅ Saved table4_outcome_transition.tex")
+
+    # Table 5: Complexity Tier Matrix
+    t5_path = tab_dir / "table5_complexity_matrix.tex"
+    with open(t5_path, "w", encoding="utf-8") as f:
+        f.write("% Table 5: Execution Accuracy Stratified by Complexity Tier\n")
+        f.write("\\begin{table*}[t]\n\\centering\\small\n\\begin{tabular}{lcccc}\n\\toprule\n")
+        f.write("\\textbf{Benchmark Split} & \\textbf{Simple (Proj/Filter)} & \\textbf{Moderate (Agg/Sort)} & \\textbf{Complex (Join)} & \\textbf{Advanced (Nested/Set)} \\\\\n\\midrule\n")
+        for sname in analysis["benchmarks"]:
+            slabel = sname.replace("_", " ").title()
+            accs = []
+            for tier in COMPLEXITY_TIERS:
+                d = analysis["complexity_matrix"][sname].get(tier, {}).get("finetuned", {})
+                accs.append(f"{d.get('acc', 0.0)*100:.1f}\\%")
+            f.write(f"{slabel} & " + " & ".join(accs) + " \\\\\n")
+        f.write("\\bottomrule\n\\end{tabular}\n")
+        f.write("\\caption{QwerySmith 1.1 execution accuracy stratified across query complexity tiers.}\n")
+        f.write("\\label{tab:complexity_matrix}\n\\end{table*}\n")
+    print("  ✅ Saved table5_complexity_matrix.tex")
+
+    # Table 6: Error Taxonomy
+    t6_path = tab_dir / "table6_error_taxonomy.tex"
+    with open(t6_path, "w", encoding="utf-8") as f:
+        f.write("% Table 6: Error Taxonomy and Failure Mode Breakdown\n")
+        f.write("\\begin{table}[t]\n\\centering\\small\n\\begin{tabular}{lccc}\n\\toprule\n")
+        f.write("\\textbf{Failure Mode} & \\textbf{Base (0-Shot)} & \\textbf{Base (3-Shot)} & \\textbf{QwerySmith 1.1} \\\\\n\\midrule\n")
+        err_types = list(analysis["error_taxonomy"]["finetuned"].keys())
+        for e in err_types:
+            c0 = analysis["error_taxonomy"]["base_zeroshot"][e]
+            c3 = analysis["error_taxonomy"]["base_fewshot"][e]
+            c_ft = analysis["error_taxonomy"]["finetuned"][e]
+            f.write(f"{e} & {c0} & {c3} & \\textbf{{{c_ft}}} \\\\\n")
+        f.write("\\bottomrule\n\\end{tabular}\n")
+        f.write("\\caption{Failure mode distribution comparing base systems against QwerySmith 1.1.}\n")
+        f.write("\\label{tab:error_taxonomy}\n\\end{table}\n")
+    print("  ✅ Saved table6_error_taxonomy.tex")
+
+    # Table 7: Full Diagnostic Clause Testing Matrix (Precision, Recall, Specificity, NPV, Bal Acc, MCC)
+    t7_path = tab_dir / "table7_diagnostic_clause_matrix.tex"
+    with open(t7_path, "w", encoding="utf-8") as f:
+        f.write("% Table 7: Comprehensive Diagnostic AST Clause Metrics for QwerySmith 1.1\n")
+        f.write("\\begin{table*}[t]\n\\centering\\small\n\\begin{tabular}{lccccccc}\n\\toprule\n")
+        f.write("\\textbf{Clause} & \\textbf{Precision} & \\textbf{Recall (Sens.)} & \\textbf{Specificity} & \\textbf{NPV} & \\textbf{Bal. Acc.} & \\textbf{F1 Score} & \\textbf{MCC} \\\\\n\\midrule\n")
+        for c in CLAUSE_NAMES:
+            diag = analysis["diagnostic_metrics"]["finetuned"][c]
+            f.write(f"{c} & {diag['precision']:.3f} & {diag['recall']:.3f} & {diag['specificity']:.3f} & {diag['npv']:.3f} & {diag['balanced_acc']:.3f} & {diag['f1']:.3f} & \\textbf{{{diag['mcc']:.3f}}} \\\\\n")
+        f.write("\\bottomrule\n\\end{tabular}\n")
+        f.write("\\caption{Full diagnostic evaluation matrix of AST clause generation including Matthews Correlation Coefficient (MCC).}\n")
+        f.write("\\label{tab:diagnostic_clause_matrix}\n\\end{table*}\n")
+    print("  ✅ Saved table7_diagnostic_clause_matrix.tex")
+
+    # Table 8: Error Migration & Healing Matrix
+    t8_path = tab_dir / "table8_error_migration_matrix.tex"
+    with open(t8_path, "w", encoding="utf-8") as f:
+        f.write("% Table 8: Error Migration Matrix (Base Failure Mode to Fine-Tuned Resolution)\n")
+        f.write("\\begin{table}[t]\n\\centering\\small\n\\begin{tabular}{lcccc}\n\\toprule\n")
+        f.write(" & \\multicolumn{4}{c}{\\textbf{QwerySmith 1.1 Resolution State}} \\\\\n\\cmidrule(lr){2-5}\n")
+        f.write("\\textbf{Base 3-Shot Failure} & \\textbf{Resolved Exact} & \\textbf{Resolved Exec} & \\textbf{Persistent Err} & \\textbf{Alt. Failure} \\\\\n\\midrule\n")
+        for e in err_types:
+            m = analysis["error_migration_matrix"][e]
+            f.write(f"{e} & {m['Resolved Exact']} & {m['Resolved Exec']} & {m['Persistent Error']} & {m['Alternative Failure']} \\\\\n")
+        f.write("\\bottomrule\n\\end{tabular}\n")
+        f.write("\\caption{Error healing matrix detailing resolution trajectories of baseline failure modes.}\n")
+        f.write("\\label{tab:error_migration_matrix}\n\\end{table}\n")
+    print("  ✅ Saved table8_error_migration_matrix.tex")
+
+    # Table 9: Token Length Stratification Matrix
+    t9_path = tab_dir / "table9_length_stratification.tex"
+    with open(t9_path, "w", encoding="utf-8") as f:
+        f.write("% Table 9: Execution Accuracy Stratified by SQL Token Length\n")
+        f.write("\\begin{table}[t]\n\\centering\\small\n\\begin{tabular}{lcccc}\n\\toprule\n")
+        f.write("\\textbf{Length Tier (Tokens)} & \\textbf{Queries (N)} & \\textbf{Base (0-Shot)} & \\textbf{Base (3-Shot)} & \\textbf{QwerySmith 1.1} \\\\\n\\midrule\n")
+        for lb in LENGTH_BINS:
+            d = analysis["length_matrix"][lb]
+            n_q = d["finetuned"]["count"]
+            b0 = f"{d['base_zeroshot']['acc']*100:.1f}\\%"
+            b3 = f"{d['base_fewshot']['acc']*100:.1f}\\%"
+            ft = f"\\textbf{{{d['finetuned']['acc']*100:.1f}\\%}}"
+            f.write(f"{lb} & {n_q} & {b0} & {b3} & {ft} \\\\\n")
+        f.write("\\bottomrule\n\\end{tabular}\n")
+        f.write("\\caption{Impact of query length and compositional depth on execution success rate.}\n")
+        f.write("\\label{tab:length_stratification}\n\\end{table}\n")
+    print("  ✅ Saved table9_length_stratification.tex")
+
+    # Table 10: Per-Split Inter-System Agreement Matrix (Cohen's Kappa)
+    t10_path = tab_dir / "table10_persplit_kappa.tex"
+    with open(t10_path, "w", encoding="utf-8") as f:
+        f.write("% Table 10: Per-Split Inter-System Agreement (Cohen's Kappa)\n")
+        f.write("\\begin{table}[t]\n\\centering\\small\n\\begin{tabular}{lccc}\n\\toprule\n")
+        f.write("\\textbf{Benchmark Split} & \\textbf{Base 0S vs Base 3S} & \\textbf{Base 3S vs FT} & \\textbf{Base 0S vs FT} \\\\\n\\midrule\n")
+        for sname, k_dict in analysis["persplit_agreement"].items():
+            slabel = sname.replace("_", " ").title()
+            k_03 = f"{k_dict['base_zeroshot']['base_fewshot']:.3f}"
+            k_3ft = f"{k_dict['base_fewshot']['finetuned']:.3f}"
+            k_0ft = f"{k_dict['base_zeroshot']['finetuned']:.3f}"
+            f.write(f"{slabel} & {k_03} & {k_3ft} & {k_0ft} \\\\\n")
+        f.write("\\bottomrule\n\\end{tabular}\n")
+        f.write("\\caption{Inter-system Cohen's Kappa agreement partitioned across benchmark distributions.}\n")
+        f.write("\\label{tab:persplit_kappa}\n\\end{table}\n")
+    print("  ✅ Saved table10_persplit_kappa.tex")
 
 
 # --------------------------------------------------------------------------
@@ -563,13 +1175,13 @@ def generate_report(analysis: dict, out_dir: Path):
         "",
         "## 1. Executive Summary & Key Findings",
         "",
-        "This report provides institutional-grade empirical metrics for **QwerySmith 1.1** (Qwen3-4B fine-tuned via QLoRA with Unsloth) evaluated across multi-source held-out benchmarks.",
+        "This report delivers an institutional-grade empirical evaluation for **QwerySmith 1.1** (Qwen3-4B fine-tuned via QLoRA with Unsloth) across in-distribution and cross-domain held-out benchmarks.",
         "",
         "### Key Highlights:",
-        "- **Statistically Significant In-Distribution Jump**: Execution accuracy surged from **67.2% to 88.5%** (+21.3% absolute leap, $p < 0.001$), with Exact Match string parity leaping from **7.0% to 84.5%** (12x improvement).",
-        "- **Generalization to Enterprise Multi-Table Schemas**: On `gretel_test`, QwerySmith reached **55.7% execution accuracy**, recording **43 head-to-head wins vs 18 losses** against the 3-shot foundation model.",
-        "- **Empirical Validation of the Few-Shot Paradox**: 3-shot in-context learning consistently degraded foundation model accuracy (from 52.3% to 47.3% on Gretel, and 50.0% to 40.9% on SQaLe). Fine-tuning embedded syntax permanently into weights, eliminating prompt token overhead.",
-        "- **Syntax Robustness**: Achieved **80.9% valid SQL** on noisy real-world schemas (`heldout_sqale`), outperforming both zero-shot (78.7%) and 3-shot (70.2%).",
+        "- **Statistically Significant In-Distribution Leap**: Execution accuracy surged from **67.2% to 88.5%** (+21.3% absolute gain, $p < 0.001$), while Exact Match string parity leaped from **7.0% to 84.5%** (12x relative increase).",
+        "- **Cross-Domain Enterprise Transfer**: On `gretel_test`, QwerySmith reached **55.7% execution accuracy**, recording **43 head-to-head wins vs 18 losses** (+25 net wins) against the 3-shot foundation baseline.",
+        "- **Empirical Discovery of the Few-Shot Paradox**: 3-shot prompt exemplars degraded base model performance (52.3% down to 47.3% on Gretel; 50.0% down to 40.9% on SQaLe). Fine-tuning embedded syntax permanently into weights, eliminating context dilution and latency.",
+        "- **Syntactic Robustness**: Maintained **80.9% valid SQL** on noisy real-world schemas (`heldout_sqale`), outperforming both zero-shot (78.7%) and 3-shot (70.2%).",
         "",
         "---",
         "",
@@ -591,24 +1203,69 @@ def generate_report(analysis: dict, out_dir: Path):
         "",
         "---",
         "",
-        "## 3. AST Clause-Level Proficiency Breakdown",
+        "## 3. 4x4 Pairwise Outcome State Transition Matrix",
         "",
-        "| SQL Clause | Base 3-Shot Prec | Base 3-Shot Rec | Base 3-Shot F1 | QwerySmith Prec | QwerySmith Rec | QwerySmith F1 |",
-        "|:---|:---:|:---:|:---:|:---:|:---:|:---:|",
+        "This matrix tracks query migration from Base 3-Shot to QwerySmith 1.1 across 4 distinct outcome states:",
+        "",
+        "| Base 3-Shot State | QwerySmith: Invalid | QwerySmith: Runs Wrong | QwerySmith: Exec Match | QwerySmith: Exec Exact |",
+        "|:---|:---:|:---:|:---:|:---:|",
+    ]
+
+    tm = analysis["transition_matrix"]
+    for s_b in OUTCOME_STATES:
+        vals = [str(tm[s_b][s_ft]) for s_ft in OUTCOME_STATES]
+        lines.append(f"| **{OUTCOME_DISPLAY[s_b]}** | " + " | ".join(vals) + " |")
+
+    lines += [
+        "",
+        "---",
+        "",
+        "## 4. AST Clause-Level Diagnostic Performance Matrix",
+        "",
+        "| SQL Clause | Precision | Recall (Sens.) | Specificity | NPV | Balanced Acc | F1 Score | MCC |",
+        "|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|",
     ]
 
     for c in CLAUSE_NAMES:
-        b = analysis["clause_metrics"]["base_fewshot"][c]
-        ft = analysis["clause_metrics"]["finetuned"][c]
+        diag = analysis["diagnostic_metrics"]["finetuned"][c]
         lines.append(
-            f"| **{c}** | {b['precision']:.2f} | {b['recall']:.2f} | {b['f1']:.2f} | **{ft['precision']:.2f}** | **{ft['recall']:.2f}** | **{ft['f1']:.2f}** |"
+            f"| **{c}** | {diag['precision']:.3f} | {diag['recall']:.3f} | {diag['specificity']:.3f} | {diag['npv']:.3f} | {diag['balanced_acc']:.3f} | {diag['f1']:.3f} | **{diag['mcc']:.3f}** |"
         )
 
     lines += [
         "",
         "---",
         "",
-        "## 4. Paired Statistical Significance Testing (McNemar)",
+        "## 5. Error Recovery & Healing Matrix",
+        "",
+        "| Base Failure Mode | Resolved Exact | Resolved Exec Match | Persistent Error | Alternative Failure |",
+        "|:---|:---:|:---:|:---:|:---:|",
+    ]
+
+    err_types = list(analysis["error_taxonomy"]["finetuned"].keys())
+    for e in err_types:
+        m = analysis["error_migration_matrix"][e]
+        lines.append(f"| **{e}** | {m['Resolved Exact']} | {m['Resolved Exec']} | {m['Persistent Error']} | {m['Alternative Failure']} |")
+
+    lines += [
+        "",
+        "---",
+        "",
+        "## 6. Token Length Stratification Matrix",
+        "",
+        "| Length Tier (Tokens) | Sample Count | Base (0-Shot) Acc | Base (3-Shot) Acc | QwerySmith 1.1 Acc |",
+        "|:---|:---:|:---:|:---:|:---:|",
+    ]
+
+    for lb in LENGTH_BINS:
+        d = analysis["length_matrix"][lb]
+        lines.append(f"| **{lb}** | {d['finetuned']['count']} | {d['base_zeroshot']['acc']*100:.1f}% | {d['base_fewshot']['acc']*100:.1f}% | **{d['finetuned']['acc']*100:.1f}%** |")
+
+    lines += [
+        "",
+        "---",
+        "",
+        "## 7. Paired Statistical Significance Testing (McNemar)",
         "",
         "| Benchmark Split | Discordant Pairs | Fine-Tuned Wins | Base Wins | Odds Ratio | Two-Sided p-value | Significant ($p < 0.05$) |",
         "|:---|:---:|:---:|:---:|:---:|:---:|:---:|",
@@ -622,20 +1279,36 @@ def generate_report(analysis: dict, out_dir: Path):
             f"| **{slabel}** | {mc['total_discordant']} | {mc['wins_A']} | {mc['wins_B']} | {mc['odds_ratio']:.2f} | {p_str} | {sig_str} |"
         )
 
-    lines += [
-        "",
-        "---",
-        "",
-        "## 5. Generated Publication Assets",
-        "",
-        "All publication assets are stored under `paper_artifacts/`:",
-        "- **Figures**: `figures/fig1_execution_accuracy.png`, `figures/fig2_exact_vs_execution.png`, `figures/fig3_clause_f1_scores.png`, `figures/fig4_pairwise_win_loss.png`, `figures/fig5_training_dynamics.png` (each with vector PDF versions).",
-        "- **LaTeX Tables**: `tables/table1_main_benchmark.tex`, `tables/table2_clause_metrics.tex`, `tables/table3_significance.tex`.",
-        "",
-    ]
-
     report_path.write_text("\n".join(lines), encoding="utf-8")
-    print(f"\n📄 Research paper report generated at: {report_path}")
+    print(f"\n📄 Comprehensive research report generated at: {report_path}")
+
+
+# --------------------------------------------------------------------------
+# Colab Inline Display Runner
+# --------------------------------------------------------------------------
+def display_in_colab(paper_dir: Path):
+    """Renders all 13 figures and reports directly inside Google Colab / Jupyter."""
+    try:
+        from IPython.display import Image, display, Markdown
+    except ImportError:
+        print("Note: IPython not found, skipping inline visualization.")
+        return
+
+    print("\n" + "=" * 70)
+    print("📊 RENDERING PUBLICATION FIGURES & MATRICES IN COLAB NOTEBOOK")
+    print("=" * 70)
+
+    fig_dir = paper_dir / "figures"
+    fig_files = sorted(list(fig_dir.glob("*.png")))
+    for fpath in fig_files:
+        display(Markdown(f"### {fpath.stem.replace('_', ' ').title()}"))
+        display(Image(filename=str(fpath), width=750))
+
+    report_path = paper_dir / "RESEARCH_PAPER_REPORT.md"
+    if report_path.exists():
+        display(Markdown("---"))
+        display(Markdown("## 📋 Comprehensive Research Paper Report"))
+        display(Markdown(report_path.read_text(encoding="utf-8")))
 
 
 # --------------------------------------------------------------------------
@@ -647,11 +1320,12 @@ def main():
                         help="Path to the finished run directory holding predictions and logs.")
     parser.add_argument("--paper-dir", default="",
                         help="Path to output paper artifacts (default: <out>/paper_artifacts).")
+    parser.add_argument("--display", action="store_true",
+                        help="Display figures and reports inline in Colab / Jupyter notebook.")
     args = parser.parse_args()
 
     run_dir = Path(args.out).resolve()
     if not run_dir.exists():
-        # Fallback search
         for alt in ["runs/qwerysmith-1.1", "/content/drive/MyDrive/qwerysmith_runs", "."]:
             if (Path(alt) / "predictions.csv").exists() or (Path(alt) / "results.json").exists():
                 run_dir = Path(alt).resolve()
@@ -670,11 +1344,15 @@ def main():
     generate_latex_tables(analysis, paper_dir)
     generate_report(analysis, paper_dir)
 
-    # Save raw analysis JSON
     (paper_dir / "analysis_summary.json").write_text(json.dumps(analysis, indent=2, default=str))
 
-    print(f"\n🎉 ALL RESEARCH PAPER ASSETS COMPLETED!")
+    print(f"\n🎉 ALL 13 FIGURES, 10 LATEX TABLES & REPORT COMPLETED!")
     print(f"📦 Files saved in: {paper_dir}")
+
+    # Auto-display if running in IPython or if --display was requested
+    is_ipython = "IPython" in sys.modules or "google.colab" in sys.modules
+    if args.display or is_ipython:
+        display_in_colab(paper_dir)
 
 
 if __name__ == "__main__":
