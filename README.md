@@ -156,36 +156,29 @@ ollama run Cyrax321/QwerySmith-1.0-GGUF
 
 ---
 
-## 🚀 Quickstart & Training (Google Colab / Linux GPU)
+---
 
-Recommended runtime: **T4 GPU** (free tier is fully sufficient).
+## 🛠️ Training Both Versions (Google Colab / Linux GPU)
+
+Recommended runtime: **Tesla T4 GPU** (Google Colab free tier is fully sufficient).
 
 ### 1. Install Dependencies
 ```bash
-!pip install -q "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git" trl datasets matplotlib
+pip install -q "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git" trl datasets matplotlib
 ```
 
-### 2. Run a 5-Minute Smoke Test
-Verify model loading, schema extraction, training masking, and evaluation end-to-end:
+### 2. Train QwerySmith 1.0 (Baseline Pipeline)
 ```bash
-!python QwerySmith/Qwerysmith_V11.py --smoke
+python QwerySmith/QwerySmith.py --stage all --out runs/qwerysmith-1.0
 ```
 
-### 3. Run Experimental Ablations
-
-- **Run B (Data Mix Ablation)** — Isolates the effect of 50/50 data mixing:
-  ```bash
-  !python QwerySmith/Qwerysmith_V11.py --out runs/v11-B \
-      --mix sql_create_context:5000,gretel:5000 \
-      --lr 2e-4 --dropout 0 --heldout sqale,large_schema
-  ```
-
-- **Run C (Data Mix + Regularized Recipe)** — Recommended full pipeline with lower LR and LoRA dropout:
-  ```bash
-  !python QwerySmith/Qwerysmith_V11.py --out runs/v11-C \
-      --mix sql_create_context:5000,gretel:5000 \
-      --lr 1e-4 --dropout 0.05 --save-steps 100 --heldout sqale,large_schema
-  ```
+### 3. Train QwerySmith 1.1 (Multi-Source Production Pipeline)
+```bash
+python QwerySmith/Qwerysmith_V11.py --stage all --out runs/qwerysmith-1.1 \
+    --mix sql_create_context:5000,gretel:5000 \
+    --heldout sqale,large_schema \
+    --lr 1e-4 --dropout 0.05
+```
 
 ---
 
