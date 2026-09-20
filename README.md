@@ -144,6 +144,16 @@ outputs = model.generate(**inputs, max_new_tokens=256, use_cache=True)
 print(tokenizer.batch_decode(outputs)[0])
 ```
 
+### 2. Local Edge Inference with Ollama
+
+```bash
+# Run QwerySmith 1.1 locally (CPU or GPU)
+ollama run Cyrax321/QwerySmith-1.1-GGUF
+
+# Or run QwerySmith 1.0 baseline
+ollama run Cyrax321/QwerySmith-1.0-GGUF
+```
+
 ---
 
 ## 🚀 Quickstart & Training (Google Colab / Linux GPU)
