@@ -224,6 +224,20 @@ def format_table(columns: list[str], rows: list[tuple], max_rows: int = 50) -> s
     return "\n".join(lines)
 
 
+GREETINGS = {
+    "hi", "hey", "hello", "hola", "yo", "sup", "good morning", "good afternoon",
+    "good evening", "who are you", "what are you", "what can you do", "help", ":help"
+}
+
+
+def is_conversational_greeting(text: str) -> bool:
+    """Detects if user input is casual chit-chat or greeting rather than a database query."""
+    clean = re.sub(r"[^\w\s]", "", text.strip().lower())
+    if clean in GREETINGS:
+        return True
+    return clean.startswith(("hello ", "hey ", "hi there", "who are you", "what can you do"))
+
+
 # --------------------------------------------------------------------------
 # 3. Autonomous QwerySmith Agent
 # --------------------------------------------------------------------------
@@ -312,17 +326,21 @@ class QwerySmithAgent:
         )
 
         import torch
+        import warnings
         device = "cuda" if torch.cuda.is_available() else "cpu"
         enc = self.tok([prompt], return_tensors="pt").to(device)
 
-        with torch.no_grad():
-            gen = self.model.generate(
-                **enc,
-                max_new_tokens=256,
-                do_sample=False,
-                pad_token_id=self.tok.pad_token_id or self.tok.eos_token_id,
-                use_cache=True,
-            )
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*max_new_tokens.*")
+            warnings.filterwarnings("ignore", category=UserWarning)
+            with torch.no_grad():
+                gen = self.model.generate(
+                    **enc,
+                    max_new_tokens=256,
+                    do_sample=False,
+                    pad_token_id=self.tok.pad_token_id or self.tok.eos_token_id,
+                    use_cache=True,
+                )
 
         raw = self.tok.decode(gen[0][enc.input_ids.shape[1]:], skip_special_tokens=True)
         return clean_sql(raw)
@@ -433,6 +451,18 @@ class QwerySmithAgent:
             if user_input.lower() in [":exit", ":quit", "exit", "quit", ":q"]:
                 print("👋 Session ended. Happy querying!")
                 break
+
+            if is_conversational_greeting(user_input):
+                print(f"\n👋 Hello! I am QwerySmith 1.1, your autonomous Text-to-SQL database agent.")
+                print(f"I am connected to '{db_file.name}' ({len(tables)} tables: {', '.join(tables)}).")
+                print("Ask me questions in plain English to query your database, for example:")
+                print("  • 'Which customers spent more than $1,000 in total?'")
+                print("  • 'What is our top-selling product by revenue?'")
+                print("  • 'List all products with stock quantity below 20.'")
+                print("  • 'Show the average order value per country.'")
+                print("  • 'Show all 5-star reviews along with customer name.'")
+                print("\nCommands: :schema, :tables, :sample <table>, :db <path>, :exit\n")
+                continue
 
             if user_input.lower() == ":schema":
                 conn = sqlite3.connect(str(db_file))
