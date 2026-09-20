@@ -6,7 +6,7 @@
 [![Framework](https://img.shields.io/badge/Fine--Tuning-Unsloth%20%2B%20TRL-orange)](https://github.com/unslothai/unsloth)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**QwerySmith** is an end-to-end Text-to-SQL research and production system built on **Qwen3-4B** using **QLoRA** via [Unsloth](https://github.com/unslothai/unsloth) and [TRL](https://github.com/huggingface/trl). It features an interactive self-healing database agent, a multi-source data-mixing training pipeline, and an enterprise evaluation suite with execution-based verification.
+**QwerySmith** is an open-source Text-to-SQL research and production ecosystem built on **Qwen3-4B** using **QLoRA** via [Unsloth](https://github.com/unslothai/unsloth) and [TRL](https://github.com/huggingface/trl). It encompasses the full lifecycle of specialized language modeling: multi-source curriculum fine-tuning, catastrophic forgetting diagnosis, leak-proof held-out evaluation, and an interactive self-healing database agent with execution verification.
 
 ---
 
