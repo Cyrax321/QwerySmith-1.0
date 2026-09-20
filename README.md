@@ -78,6 +78,8 @@ In **QwerySmith 1.0**, the model was trained exclusively on 10,000 rows of `b-mc
 |:---|:---|:---:|:---:|:---:|:---:|
 | **`in_dist`** | Base (Zero-Shot)<br>Base (3-Shot)<br>**QwerySmith 1.1** | 98.5%<br>98.0%<br>**98.0%** | 6.0%<br>7.0%<br>**84.5%** | 67.2% (54.7% to 77.7%)<br>67.2% (54.7% to 77.7%)<br>**88.5% (78.2% to 94.3%)** | 61/200 |
 | **`gretel_test`** | Base (Zero-Shot)<br>Base (3-Shot)<br>**QwerySmith 1.1** | 92.7%<br>88.7%<br>**90.7%** | 26.0%<br>26.3%<br>**32.0%** | 52.3% (46.7% to 58.0%)<br>47.3% (41.7% to 53.0%)<br>**55.7% (50.0% to 61.2%)** | 298/300 |
+| **`heldout_sqale`** | Base (Zero-Shot)<br>Base (3-Shot)<br>**QwerySmith 1.1** | 78.7%<br>70.2%<br>**80.9%** | 12.8%<br>12.8%<br>**10.6%** | 50.0% (35.8% to 64.2%)<br>40.9% (27.7% to 55.6%)<br>**45.5% (31.7% to 59.9%)** | 44/47 |
+| **`heldout_large_schema`**| Base (Zero-Shot)<br>Base (3-Shot)<br>**QwerySmith 1.1** | 61.0%<br>53.9%<br>**55.8%** | 1.9%<br>2.6%<br>**1.9%** | 21.8% (15.8% to 29.3%)<br>19.7% (14.0% to 27.0%)<br>**17.6% (12.2% to 24.7%)** | 142/154 |
 
 ### How v1.1 Solves It:
 1. **Multi-Source Data Mixing (`--mix`)**: Draws a configurable mix across sources (`sql_create_context:5000,gretel:5000`), forcing the model to learn 100+ realistic business schemas, correct column linking, and real numeric types.
