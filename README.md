@@ -144,7 +144,7 @@ QwerySmith is developed across two complementary releases:
 |:---|:---|:---|
 | **Base Foundation** | `unsloth/Qwen3-4B` | `unsloth/Qwen3-4B` |
 | **Training Data** | 10,000 rows `b-mc2/sql-create-context` (single-source) | 10,000 rows balanced 50/50 mix (`sql-create-context` + `synthetic_text_to_sql`) |
-| **Splitting Strategy** | Post-hoc random sampling | **Leak-proof pre-split carving** (zero contamination) |
+| **Splitting Strategy** | Post-hoc random sampling | **Leak-proof pre-split carving** (zero schema contamination) |
 | **LoRA Config** | $r=16, lpha=32$, dropout = 0, LR = `2e-4` | $r=16, lpha=32$, **dropout = 0.05**, **LR = `1e-4`** |
 | **In-Dist Execution Acc** | **88.5%** | **88.5%** (Exact Match: **84.5%**, 13-0 record) |
 | **Enterprise External Acc** | 34.6% *(Suffered single-source overfit)* | **55.7%** *(+21.1% over v1.0; 43 wins vs 18 losses vs base)* |
