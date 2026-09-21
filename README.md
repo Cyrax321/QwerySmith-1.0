@@ -1,5 +1,6 @@
 # QwerySmith: Production Text-to-SQL Model Family
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Cyrax321/QwerySmith-1.0/blob/main/demo_colab.ipynb)
 [![Research Paper](https://img.shields.io/badge/Research%20Paper-PDF-red.svg)](https://drive.google.com/file/d/1sN1eVn7LpOi6cLEI1euxOT2cByBoXLlg/view?usp=sharing)
 [![Hugging Face Models](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-QwerySmith--1.1-blue)](https://huggingface.co/Cyrax321/QwerySmith-1.1)
 [![Hugging Face Models](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-QwerySmith--1.0-blue)](https://huggingface.co/Cyrax321/QwerySmith-1.0)
