@@ -402,7 +402,7 @@ Seamlessly switch between SQLite for embedded transactional storage and DuckDB f
 ```python
 from harness.adapters import SQLiteAdapter, DuckDBAdapter
 
-# 1. SQLite execution with read-only sandbox
+# 1. SQLite embedded engine with thread-safe read-only sandbox
 sqlite_db = SQLiteAdapter("company_store.db", timeout_sec=2.0)
 res_sqlite = sqlite_db.execute_query("SELECT COUNT(*) FROM orders;")
 print("Total Orders:", res_sqlite["rows"][0][0])
