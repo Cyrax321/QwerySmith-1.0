@@ -20,6 +20,8 @@
 │   ├── data_sources.py         # Multi-dataset registry, split carver & leak-proof sampler
 │   └── QwerySmith.py           # v1.0 baseline training and evaluation pipeline
 ├── harness/                    # Modular Execution, Memory, Tools & Evaluation Package
+│   ├── __init__.py             # Public API exports (QwerySmithAgent, AgentMemoryEngine, etc.)
+│   ├── __main__.py             # CLI runner entrypoint (python -m harness)
 │   ├── agent.py                # Dual-mode autonomous SQL & conversational agent
 │   ├── memory.py               # Ultra-fast (<1ms) persistent agentic memory engine
 │   ├── self_healing.py         # AST reflection and error-repair engine
@@ -27,9 +29,6 @@
 │   ├── paper_eval.py           # Institutional research paper evaluation suite
 │   ├── qwerysmith_eval.py      # Statistical evaluation & calibration suite
 │   └── make_overleaf_zip.py    # Overleaf paper packager
-├── agent.py                    # Root entrypoint (forwards to harness.agent)
-├── memory.py                   # Root entrypoint (forwards to harness.memory)
-├── qwerysmith_eval.py          # Root entrypoint for statistical evaluation suite
 ├── tests/
 │   ├── test_memory.py          # Latency SLA, multi-turn follow-up, FTS5 & persistence tests
 │   ├── test_harness_integration.py # Multi-turn SParC/CoSQL simulation & few-shot seeding
@@ -183,7 +182,7 @@ python QwerySmith/Qwerysmith_V11.py --stage all --out runs/qwerysmith-1.1 \
 
 ---
 
-## 🤖 Autonomous Conversational Agent & Real-World Live Experiment (`agent.py`)
+## 🤖 Autonomous Conversational Agent & Real-World Live Experiment (`harness/agent.py`)
 
 QwerySmith 1.1 includes a production autonomous agent designed as a **dual-mode conversational database assistant**:
 1. **Specialized SQL Synthesis Mode**: Uses the fine-tuned QwerySmith 1.1 QLoRA adapter for precise, schema-linked SQLite/PostgreSQL generation.
@@ -212,13 +211,16 @@ In a comprehensive live test against a multi-table SQLite enterprise database (`
 
 #### In Google Colab or Jupyter Notebook:
 ```python
-import agent
-agent.chat_loop(model_path="/content/drive/MyDrive/qwerysmith-1.1/adapter")
+from harness import QwerySmithAgent
+
+agent = QwerySmithAgent(model_path="/content/drive/MyDrive/qwerysmith-1.1/adapter", db_path="company_store.db")
+agent.chat_loop()
 ```
 
 #### From Terminal / CLI:
 ```bash
-python agent.py --model Cyrax321/QwerySmith-1.1 --db company_store.db
+# Run agent via harness package module
+python -m harness --model Cyrax321/QwerySmith-1.1 --db company_store.db
 ```
 
 ### 🧠 Agent Architectural Highlights:
@@ -227,9 +229,9 @@ python agent.py --model Cyrax321/QwerySmith-1.1 --db company_store.db
 - **Sub-Millisecond Query Execution**: Database queries execute in **0.3ms to 0.6ms** on SQLite.
 - **AST Self-Healing Reflection**: Catches SQL execution tracebacks (e.g., column misspellings or syntax faults) and self-heals in real time.
 - **Real-Time Temporal Grounding**: Accurately answers date-dependent and relative-time queries without hallucinating historical dates.
-- **Ultra-Fast Persistent Agentic Memory (`memory.py`)**: Built with SQLite WAL mode, B-Tree session indexing, and FTS5 BM25 search (<1ms retrieval latency). Resolves conversational follow-ups and accumulates verified/healed SQL patterns across sessions.
+- **Ultra-Fast Persistent Agentic Memory (`harness/memory.py`)**: Built with SQLite WAL mode, B-Tree session indexing, and FTS5 BM25 search (<1ms retrieval latency). Resolves conversational follow-ups and accumulates verified/healed SQL patterns across sessions.
 
-### 🧠 Ultra-Fast Persistent Agentic Memory Layer (`memory.py`)
+### 🧠 Ultra-Fast Persistent Agentic Memory Layer (`harness/memory.py`)
 
 QwerySmith incorporates a standalone, decoupled agentic memory engine designed for both **interactive multi-turn conversations** and **evaluation harnesses**:
 
@@ -238,25 +240,25 @@ QwerySmith incorporates a standalone, decoupled agentic memory engine designed f
 - **Self-Healing Persistent Memory**: Remembers queries that underwent self-healing reflection, caching the repaired SQL into `qwerysmith_memory.sqlite` so the agent improves over time and never repeats the same syntax mistake.
 - **Harness & Benchmark Interface**: Exposes clean programmatic methods (`recall()`, `commit()`, `export_dataset()`, `import_dataset()`, `benchmark_latency()`) for few-shot benchmark evaluation (e.g. SParC, CoSQL, Spider).
 
-#### Interactive Memory Commands in `agent.py`:
+#### Interactive Memory Commands:
 - `:memory` or `:mem`: View real-time memory telemetry (turns recorded, verified queries, self-healed patterns, DB breakdown).
 - `:clearmem`: Clear the ephemeral multi-turn context for the active session while retaining long-term verified SQL experience.
 
 ---
 
-## 📈 Research & Evaluation Toolkit (`qwerysmith_eval.py`)
+## 📈 Research & Evaluation Toolkit (`harness/qwerysmith_eval.py`)
 
 `qwerysmith_eval.py` is an evaluation framework that produces publication-ready figures, confidence intervals, and statistical tests:
 
 ```bash
 # Generate all figures, tables, and REPORT.md from cached predictions (CPU-only, seconds)
-python qwerysmith_eval.py --stage figures --out runs/v11-C
+python harness/qwerysmith_eval.py --stage figures --out runs/v11-C
 
 # Run GPU-based calibration and confidence scoring
-python qwerysmith_eval.py --stage confidence --out runs/v11-C
+python harness/qwerysmith_eval.py --stage confidence --out runs/v11-C
 
 # Package everything into a downloadable zip
-python qwerysmith_eval.py --stage all --out runs/v11-C
+python harness/qwerysmith_eval.py --stage all --out runs/v11-C
 ```
 
 ### Metrics Produced:

@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from memory import AgentMemoryEngine, is_followup_question
+from harness import AgentMemoryEngine, is_followup_question
 
 
 class TestAgentMemoryEngine(unittest.TestCase):

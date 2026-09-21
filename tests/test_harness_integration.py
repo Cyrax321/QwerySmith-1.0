@@ -6,7 +6,7 @@ as a standalone memory layer in benchmark and evaluation harnesses (e.g. SParC, 
 
 import time
 import unittest
-from memory import AgentMemoryEngine
+from harness import AgentMemoryEngine
 
 
 class TestHarnessMemoryIntegration(unittest.TestCase):
