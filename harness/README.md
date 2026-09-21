@@ -1,6 +1,6 @@
-# QwerySmith Agentic & Evaluation Harness (`harness/`)
+# QwerySmith Agentic Harness (`harness/`)
 
-The `harness/` package houses all execution, persistent memory, reflection, tool calling, and evaluation pipelines for the QwerySmith text-to-SQL architecture.
+The `harness/` package houses the runtime execution harness: autonomous agent loop, sub-millisecond persistent memory, self-healing reflection, and isolated database tools.
 
 ---
 
@@ -8,15 +8,12 @@ The `harness/` package houses all execution, persistent memory, reflection, tool
 
 ```text
 harness/
-├── __init__.py               # Top-level exports
+├── __init__.py               # Package exports (QwerySmithAgent, AgentMemoryEngine, etc.)
+├── __main__.py               # CLI runner entrypoint (python -m harness)
 ├── agent.py                  # Dual-mode autonomous SQL & conversational agent
 ├── memory.py                 # Sub-millisecond persistent memory engine (<1ms)
 ├── self_healing.py           # AST & reflection error diagnosis and auto-repair
 ├── tools.py                  # Database execution sandbox, schema inspection, tables & intent
-├── paper_eval.py             # Institutional research paper evaluation suite
-├── qwerysmith_eval.py        # 3,600+ line statistical evaluation & calibration harness
-├── make_overleaf_zip.py      # Overleaf paper packager
-├── test_harness_integration.py # Multi-turn SParC/CoSQL simulation & few-shot tests
 └── README.md                 # Package documentation
 ```
 

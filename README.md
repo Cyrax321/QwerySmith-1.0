@@ -15,24 +15,29 @@
 ## 📂 Repository Layout
 
 ```text
-├── QwerySmith/
+├── QwerySmith/                 # Training pipelines (v1.0 baseline & v1.1 ablation)
 │   ├── Qwerysmith_V11.py       # v1.1 fine-tuning pipeline with multi-source mixing & ablation
 │   ├── data_sources.py         # Multi-dataset registry, split carver & leak-proof sampler
 │   └── QwerySmith.py           # v1.0 baseline training and evaluation pipeline
-├── harness/                    # Modular Execution, Memory, Tools & Evaluation Package
+├── harness/                    # Agent Runtime Harness (Agent, Memory, Self-Healing, Tools)
 │   ├── __init__.py             # Public API exports (QwerySmithAgent, AgentMemoryEngine, etc.)
 │   ├── __main__.py             # CLI runner entrypoint (python -m harness)
 │   ├── agent.py                # Dual-mode autonomous SQL & conversational agent
 │   ├── memory.py               # Ultra-fast (<1ms) persistent agentic memory engine
 │   ├── self_healing.py         # AST reflection and error-repair engine
-│   ├── tools.py                # Database sandbox execution, schema inspection & intent routing
-│   ├── paper_eval.py           # Institutional research paper evaluation suite
-│   ├── qwerysmith_eval.py      # Statistical evaluation & calibration suite
-│   └── make_overleaf_zip.py    # Overleaf paper packager
-├── tests/
+│   └── tools.py                # Database sandbox execution, schema inspection & intent routing
+├── paper/                      # Camera-ready research paper LaTeX source, figures & tables
+│   ├── main.tex                # Full paper LaTeX document
+│   ├── figures/                # 13 publication figures
+│   ├── tables/                 # 10 LaTeX tables
+│   └── README.md               # Paper replication guide
+├── tests/                      # Unit & integration test suites
 │   ├── test_memory.py          # Latency SLA, multi-turn follow-up, FTS5 & persistence tests
 │   ├── test_harness_integration.py # Multi-turn SParC/CoSQL simulation & few-shot seeding
 │   └── make_synthetic_run.py   # Offline test harness (evaluates without GPU/model downloads)
+├── qwerysmith_eval.py          # Statistical evaluation & calibration suite
+├── paper_eval.py               # Institutional research paper evaluation suite
+├── make_overleaf_zip.py        # Overleaf paper packager
 └── README.md
 ```
 
@@ -246,19 +251,19 @@ QwerySmith incorporates a standalone, decoupled agentic memory engine designed f
 
 ---
 
-## 📈 Research & Evaluation Toolkit (`harness/qwerysmith_eval.py`)
+## 📈 Research & Evaluation Toolkit (`qwerysmith_eval.py`)
 
 `qwerysmith_eval.py` is an evaluation framework that produces publication-ready figures, confidence intervals, and statistical tests:
 
 ```bash
 # Generate all figures, tables, and REPORT.md from cached predictions (CPU-only, seconds)
-python harness/qwerysmith_eval.py --stage figures --out runs/v11-C
+python qwerysmith_eval.py --stage figures --out runs/v11-C
 
 # Run GPU-based calibration and confidence scoring
-python harness/qwerysmith_eval.py --stage confidence --out runs/v11-C
+python qwerysmith_eval.py --stage confidence --out runs/v11-C
 
 # Package everything into a downloadable zip
-python harness/qwerysmith_eval.py --stage all --out runs/v11-C
+python qwerysmith_eval.py --stage all --out runs/v11-C
 ```
 
 ### Metrics Produced:
