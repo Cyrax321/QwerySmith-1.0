@@ -369,6 +369,23 @@ In a zero-shot empirical audit against a 4-table relational SQLite enterprise sc
 | 11 | *"Are there any customers who haven't placed an order yet?"* | Negative Left Join (NULL Check) | `SELECT c.name FROM customers c LEFT JOIN orders o ON c.id = o.customer_id WHERE o.id IS NULL;` | 0.6 ms | ✅ **PASS** (Elena Rostova) |
 
 
+
+### ⚙️ Centralized Runtime Configuration (`HarnessConfig`)
+
+All runtime behavior is governed by the type-safe `HarnessConfig` specification:
+
+```python
+from harness.config import HarnessConfig
+
+config = HarnessConfig(
+    read_only=True,               # Enforce immutable filesystem access
+    timeout_sec=3.0,              # Maximum execution budget before opcode interrupt
+    enable_schema_pruning=True,   # Graph-based schema subgraph filtering
+    enable_value_grounding=True,  # Categorical cell value grounding
+    max_repair_attempts=3,        # Reflection self-healing retry budget
+)
+```
+
 ### 🛡️ Production Security & Sandbox Architecture
 
 QwerySmith implements a zero-trust, defense-in-depth isolation boundary ensuring safe SQL evaluation:
