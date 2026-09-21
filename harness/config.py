@@ -5,7 +5,7 @@ harness/config.py -- Central Configuration for QwerySmith Agent Harness
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict, fields
 from pathlib import Path
 from typing import Optional, Union
 
@@ -44,3 +44,14 @@ class HarnessConfig:
 
     # Telemetry
     verbose_telemetry: bool = True
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize configuration to a standard dictionary."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "HarnessConfig":
+        """Instantiate configuration from a dictionary, ignoring unknown keys."""
+        valid = {f.name for f in fields(cls)}
+        filtered = {k: v for k, v in data.items() if k in valid}
+        return cls(**filtered)
