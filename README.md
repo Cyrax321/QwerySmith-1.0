@@ -502,7 +502,7 @@ python -m harness --model Cyrax321/QwerySmith-1.1 --db company_store.db
 
 ### Execution-Guided Candidate Consensus Voting
 
-When multiple candidate SQL hypotheses are generated (e.g. via temperature sampling or diverse beams), QwerySmith evaluates each candidate in an isolated sandbox and clusters them by their **semantic result set hash**:
+When multiple candidate SQL hypotheses are sampled across stochastic decoding beams (e.g. via temperature sampling or diverse beams), QwerySmith evaluates each candidate in an isolated sandbox and clusters them by their **semantic result set hash**:
 
 1. **Semantic Result Set Normalization**: Rows and columns are normalized to eliminate superficial differences in alias naming or ordering.
 2. **Consensus Majority Election**: The SQL candidate belonging to the largest semantic equivalence cluster is selected.
