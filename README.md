@@ -278,7 +278,8 @@ ollama run Cyrax321/QwerySmith-1.0-GGUF
 vllm serve Cyrax321/QwerySmith-1.1-Merged \
     --port 8000 \
     --max-model-len 2048 \
-    --gpu-memory-utilization 0.85
+    --gpu-memory-utilization 0.85 \
+    --trust-remote-code
 ```
 
 
