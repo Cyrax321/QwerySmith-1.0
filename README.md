@@ -17,6 +17,26 @@
 
 ---
 
+---
+
+## 🏛️ System Architecture: The Three Core Pillars
+
+QwerySmith is engineered around three interconnected architectural pillars designed for production database reliability:
+
+```text
++----------------------------------------------------------------------------------------------------+
+|                                    QWERYSITH SYSTEM ARCHITECTURE                                   |
++----------------------------------------------------------------------------------------------------+
+|  PILLAR I: FOUNDATION MODELS        PILLAR II: EXECUTION SANDBOX         PILLAR III: CONSENSUS & AST  |
+|  - Qwen3-4B Base Foundation         - In-Process SQLite WAL Engine       - Speculative Decoding       |
+|  - Contamination-Immune Carving     - Kernel-Level URI mode=ro Immut.    - Semantic Result Hashing    |
+|  - 50/50 Multi-Source Curriculum    - Mutating AST Keyword Interceptor   - Complexity Tie-Breaking    |
+|  - QLoRA Rank-16 / Cosine Decay     - Opcode Cartesian Loop Interrupter  - Levenshtein Error Healing  |
++----------------------------------------------------------------------------------------------------+
+```
+
+---
+
 ## 📂 Repository Layout
 
 ```text
