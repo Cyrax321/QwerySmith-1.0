@@ -440,7 +440,7 @@ summary.to_csv("benchmark_results.csv")
 
 ### 💬 Multi-Turn Dialogue State Tracking & Session Persistence
 
-The `DialogueStateTracker` maintains conversational context, resolves anaphoric follow-up constraints, and serializes state:
+The `DialogueStateTracker` maintains conversational context, resolves anaphoric follow-up constraints using regular expression grammars (`ANAPHORIC_PRONOUNS`, `FOLLOWUP_CONJUNCTIONS`), and serializes state:
 
 ```python
 from harness.conversation import DialogueStateTracker
