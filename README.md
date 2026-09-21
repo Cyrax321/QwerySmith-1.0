@@ -564,7 +564,7 @@ Empirical latency SLAs measured across 10,000 synthetic benchmark operations on 
 
 ## 📈 Research & Evaluation Toolkit (`qwerysmith_eval.py`)
 
-`qwerysmith_eval.py` is an evaluation framework that produces publication-ready figures, confidence intervals, and statistical tests:
+`qwerysmith_eval.py` is a research evaluation harness that produces publication-ready figures, confidence intervals, and statistical tests:
 
 ```bash
 # Generate all figures, tables, and REPORT.md from cached predictions (CPU-only, seconds)
