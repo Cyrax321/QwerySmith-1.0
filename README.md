@@ -50,13 +50,21 @@
 │   ├── Qwerysmith_V11.py       # v1.1 fine-tuning pipeline with multi-source mixing & ablation
 │   ├── data_sources.py         # Multi-dataset registry, split carver & leak-proof sampler
 │   └── QwerySmith.py           # v1.0 baseline training and evaluation pipeline
-├── harness/                    # Agent Runtime Harness (Agent, Memory, Self-Healing, Tools)
-│   ├── __init__.py             # Public API exports (QwerySmithAgent, AgentMemoryEngine, etc.)
+├── harness/                    # Modular Agent Runtime Harness
+│   ├── __init__.py             # Unified public exports (QwerySmithAgent, HarnessConfig, etc.)
 │   ├── __main__.py             # CLI runner entrypoint (python -m harness)
-│   ├── agent.py                # Dual-mode autonomous SQL & conversational agent
-│   ├── memory.py               # Ultra-fast (<1ms) persistent agentic memory engine
-│   ├── self_healing.py         # AST reflection and error-repair engine
-│   └── tools.py                # Database sandbox execution, schema inspection & intent routing
+│   ├── config.py               # Centralized configuration dataclass & JSON schema
+│   ├── agent.py                # Dual-mode autonomous SQL & conversational coordinator
+│   ├── memory.py               # Ultra-fast (<1ms) persistent SQLite WAL memory engine
+│   ├── exceptions.py           # Structured exception hierarchy (SecurityError, etc.)
+│   ├── telemetry.py            # Latency and execution telemetry event logger
+│   ├── security/               # Read-only sandbox, AST keyword guards & timeout handlers
+│   ├── schema/                 # B-Tree schema linking, value grounding & graph pruning
+│   ├── decoding/               # Candidate consensus voting & query complexity scorer
+│   ├── conversation/           # Multi-turn dialogue state tracker & session persistence
+│   ├── reflection/             # AST error diagnosis, typo matcher & self-healing engine
+│   ├── adapters/               # Multi-engine database interfaces (SQLite & DuckDB)
+│   └── benchmark/              # Quantitative Spider/BIRD benchmark evaluator & CSV export
 ├── paper/                      # Camera-ready research paper LaTeX source, figures & tables
 │   ├── main.tex                # Full paper LaTeX document
 │   ├── figures/                # 13 publication figures
