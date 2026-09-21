@@ -489,7 +489,7 @@ python -m harness --model Cyrax321/QwerySmith-1.1 --db company_store.db
 | `--db` | str | `company_store.db` | Target SQLite database file |
 | `--query` | str | `""` | One-shot execution query mode (exits after evaluation) |
 | `--timeout` | float | `3.0` | Maximum query execution timeout in seconds |
-| `--enable-pruning` | flag | `True` | Enable graph-based schema pruning |
+| `--enable-pruning` | flag | `True` | Enable graph-based foreign-key schema pruning |
 | `--enable-grounding`| flag | `True` | Enable categorical value grounding |
 | `--max-repairs` | int | `3` | Maximum AST reflection self-healing retries |
 
