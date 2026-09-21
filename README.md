@@ -460,7 +460,7 @@ tracker.record_turn(
 # Turn 2: Follow-up question automatically resolved
 context_prompt = tracker.build_context_prompt("user_42", "And who spent over $500?")
 
-# Export and persist conversation session
+# Export dialogue state to serializable dictionary
 session_dict = tracker.export_session("user_42")
 
 # Restore session in a new process
