@@ -373,7 +373,7 @@ In a zero-shot empirical audit against a 4-table relational SQLite enterprise sc
 
 QwerySmith implements a zero-trust, defense-in-depth isolation boundary ensuring safe SQL evaluation:
 
-1. **Connection-Level Immutability**: All SQLite connections enforce `file:{path}?mode=ro` with URI syntax, strictly preventing filesystem writes at the operating system C-library level.
+1. **Connection-Level Immutability**: All SQLite connections enforce deterministic `file:{path}?mode=ro` URI semantics, strictly preventing filesystem writes at the operating system C-library level.
 2. **AST Mutation Keyword Prevention**: The SQL validation engine intercepts and aborts any statement containing `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `CREATE`, `VACUUM`, `ATTACH`, or mutating `PRAGMA` directives prior to database dispatch.
 3. **Cartesian Lock Interruption**: A native SQLite opcode progress handler callback interrupts any query execution exceeding the configured timeout (default `3.0s`), guarding against accidental runaway cartesian products.
 
