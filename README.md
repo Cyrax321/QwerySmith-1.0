@@ -457,7 +457,7 @@ tracker.record_turn(
     rows=[(1, "Alice", "CA")],
 )
 
-# Turn 2: Follow-up question automatically resolved
+# Turn 2: Follow-up question automatically resolved and context synthesized
 context_prompt = tracker.build_context_prompt("user_42", "And who spent over $500?")
 
 # Export dialogue state to serializable dictionary
