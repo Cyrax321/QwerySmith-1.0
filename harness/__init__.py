@@ -9,6 +9,9 @@ Exposes:
 """
 
 from .agent import QwerySmithAgent, chat_loop, main
+from .config import HarnessConfig
+from .conversation import DialogueStateTracker, DialogueTurn, SessionState
+from .decoding import CandidateSelectionResult, ExecutionGuidedSelector
 from .memory import (
     AgentMemoryEngine,
     ExemplarRecord,
@@ -16,7 +19,19 @@ from .memory import (
     MemoryTurn,
     is_followup_question,
 )
-from .self_healing import RepairRecord, SelfHealingEngine
+from .reflection import ErrorDiagnosis, MultiStepRepairTracker, RepairAttempt, SelfHealingEngine
+from .schema import GroundedValueMatch, PrunedSchema, SchemaLinker, TableNode, ValueGrounder
+from .security import (
+    QueryTimeoutError,
+    SecurityViolationError,
+    execute_sandboxed_query,
+    get_safe_sqlite_connection,
+    is_safe_read_only,
+)
+from .telemetry import AgentEvent, EventType, LatencyBreakdown, TelemetryDispatcher
+from .adapters import DatabaseAdapter, QueryResult, SQLiteAdapter
+from .benchmark import BenchmarkEvaluator, BenchmarkItem, BenchmarkSummary
+from .self_healing import RepairRecord
 from .tools import (
     classify_intent,
     clean_sql,
@@ -30,16 +45,55 @@ from .tools import (
 )
 
 __all__ = [
+    # Core Agent & Config
     "QwerySmithAgent",
+    "HarnessConfig",
     "chat_loop",
     "main",
+    # Memory
     "AgentMemoryEngine",
     "MemoryTurn",
     "ExemplarRecord",
     "MemoryRetrievalResult",
     "is_followup_question",
+    # Reflection & Self-Healing
     "SelfHealingEngine",
     "RepairRecord",
+    "ErrorDiagnosis",
+    "RepairAttempt",
+    "MultiStepRepairTracker",
+    # Schema & Value Grounding
+    "SchemaLinker",
+    "TableNode",
+    "PrunedSchema",
+    "ValueGrounder",
+    "GroundedValueMatch",
+    # Conversation & DST
+    "DialogueStateTracker",
+    "DialogueTurn",
+    "SessionState",
+    # Decoding & Selection
+    "ExecutionGuidedSelector",
+    "CandidateSelectionResult",
+    # Security & Sandboxing
+    "execute_sandboxed_query",
+    "get_safe_sqlite_connection",
+    "is_safe_read_only",
+    "QueryTimeoutError",
+    "SecurityViolationError",
+    # Adapters
+    "DatabaseAdapter",
+    "QueryResult",
+    "SQLiteAdapter",
+    # Telemetry & Benchmarks
+    "TelemetryDispatcher",
+    "AgentEvent",
+    "EventType",
+    "LatencyBreakdown",
+    "BenchmarkEvaluator",
+    "BenchmarkItem",
+    "BenchmarkSummary",
+    # Tools
     "execute_query",
     "get_schema",
     "get_tables",
