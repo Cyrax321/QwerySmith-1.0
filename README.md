@@ -11,7 +11,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-brightgreen.svg)](https://github.com/Cyrax321/QwerySmith-1.0/pulls)
 
-**QwerySmith** is an open-source Text-to-SQL research and production ecosystem built on **Qwen3-4B** using **QLoRA** via [Unsloth](https://github.com/unslothai/unsloth) and [TRL](https://github.com/huggingface/trl). Read our paper: [QwerySmith: Multi-Source Curriculum Fine-Tuning and Robust Evaluation for Text-to-SQL (PDF)](https://drive.google.com/file/d/1sN1eVn7LpOi6cLEI1euxOT2cByBoXLlg/view?usp=sharing). It encompasses the full lifecycle of specialized language modeling: multi-source curriculum fine-tuning, catastrophic forgetting diagnosis, leak-proof held-out evaluation, and an interactive self-healing database agent with execution verification.
+**QwerySmith** is an enterprise-grade neuro-symbolic Text-to-SQL system architecture that unifies specialized foundation language models with kernel-isolated deterministic database sandboxes, execution-consistency consensus quorums, and autonomous AST reflection repair. Read our paper: [QwerySmith: Multi-Source Curriculum Fine-Tuning and Robust Evaluation for Text-to-SQL (PDF)](https://drive.google.com/file/d/1sN1eVn7LpOi6cLEI1euxOT2cByBoXLlg/view?usp=sharing). It encompasses the full lifecycle of specialized language modeling: multi-source curriculum fine-tuning, catastrophic forgetting diagnosis, leak-proof held-out evaluation, and an interactive self-healing database agent with execution verification.
 
 ---
 
