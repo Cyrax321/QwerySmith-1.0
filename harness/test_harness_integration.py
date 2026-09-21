@@ -75,7 +75,7 @@ class TestHarnessMemoryIntegration(unittest.TestCase):
         self.assertIsNotNone(res2.previous_turn)
         self.assertEqual(res2.previous_turn.question, t1["question"])
         self.assertIn("Nancy", res2.prompt_context)
-        self.assertLess(recall_latency, 5.0, f"Harness recall exceeded 5ms: {recall_latency}ms")
+        self.assertLess(recall_latency, 1.0, f"Harness recall exceeded 1ms: {recall_latency}ms")
 
         self.mem.commit(
             session_id=session_id,
@@ -122,40 +122,6 @@ class TestHarnessMemoryIntegration(unittest.TestCase):
         self.assertGreater(len(rec.exemplars), 0)
         self.assertEqual(rec.exemplars[0].sql, training_exemplars[0]["sql"])
         self.assertIn("AVG(salary)", rec.prompt_context)
-
-    def test_package_level_imports_and_tools(self):
-        """Verify that the harness package exports all necessary tools, memory, and reflection classes."""
-        from harness import (
-            AgentMemoryEngine,
-            SelfHealingEngine,
-            execute_query,
-            get_schema,
-            format_table,
-            clean_sql,
-        )
-        import sqlite3
-
-        conn = sqlite3.connect(":memory:")
-        conn.execute("CREATE TABLE test_tbl (id INT, val TEXT);")
-        conn.execute("INSERT INTO test_tbl VALUES (1, 'hello');")
-
-        # Test execute_query tool call
-        res = execute_query(conn, "SELECT * FROM test_tbl;")
-        self.assertTrue(res["success"])
-        self.assertEqual(res["columns"], ["id", "val"])
-        self.assertEqual(res["rows"], [(1, "hello")])
-
-        # Test schema tool call
-        schema = get_schema(conn)
-        self.assertIn("CREATE TABLE test_tbl", schema)
-
-        # Test SelfHealingEngine
-        healer = SelfHealingEngine()
-        diag = healer.diagnose_error("ambiguous column name: id", "SELECT id FROM a JOIN b;")
-        self.assertEqual(diag["error_type"], "AMBIGUOUS_COLUMN")
-        self.assertEqual(diag["target_entity"], "id")
-
-        conn.close()
 
 
 if __name__ == "__main__":

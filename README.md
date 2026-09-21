@@ -19,9 +19,17 @@
 │   ├── Qwerysmith_V11.py       # v1.1 fine-tuning pipeline with multi-source mixing & ablation
 │   ├── data_sources.py         # Multi-dataset registry, split carver & leak-proof sampler
 │   └── QwerySmith.py           # v1.0 baseline training and evaluation pipeline
-├── agent.py                    # Production Text-to-SQL agent with schema inspection & self-healing
-├── memory.py                   # Ultra-fast (<1ms) persistent agentic memory & harness engine
-├── qwerysmith_eval.py          # 3,600+ line statistical evaluation & calibration suite
+├── harness/                    # Modular Execution, Memory, Tools & Evaluation Package
+│   ├── agent.py                # Dual-mode autonomous SQL & conversational agent
+│   ├── memory.py               # Ultra-fast (<1ms) persistent agentic memory engine
+│   ├── self_healing.py         # AST reflection and error-repair engine
+│   ├── tools.py                # Database sandbox execution, schema inspection & intent routing
+│   ├── paper_eval.py           # Institutional research paper evaluation suite
+│   ├── qwerysmith_eval.py      # Statistical evaluation & calibration suite
+│   └── make_overleaf_zip.py    # Overleaf paper packager
+├── agent.py                    # Root entrypoint (forwards to harness.agent)
+├── memory.py                   # Root entrypoint (forwards to harness.memory)
+├── qwerysmith_eval.py          # Root entrypoint for statistical evaluation suite
 ├── tests/
 │   ├── test_memory.py          # Latency SLA, multi-turn follow-up, FTS5 & persistence tests
 │   ├── test_harness_integration.py # Multi-turn SParC/CoSQL simulation & few-shot seeding

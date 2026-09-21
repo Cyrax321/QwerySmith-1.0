@@ -1,0 +1,599 @@
+#!/usr/bin/env python3
+"""
+harness/agent.py -- QwerySmith Autonomous Database & Conversational Agent
+
+Connects fine-tuned QwerySmith models to SQLite databases, translates natural language
+into SQL with sub-millisecond persistent memory, executes queries, provides natural
+language synthesis, and self-heals syntax or schema errors via real-time reflection.
+"""
+
+from __future__ import annotations
+
+import argparse
+from contextlib import contextmanager
+from datetime import datetime
+import os
+import re
+import sqlite3
+import sys
+import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+from .memory import AgentMemoryEngine, MemoryRetrievalResult
+from .self_healing import SelfHealingEngine
+from .tools import (
+    classify_intent,
+    clean_sql,
+    execute_query,
+    format_table,
+    get_schema,
+    get_table_counts,
+    get_table_sample,
+    get_tables,
+    init_sample_db,
+)
+
+
+class QwerySmithAgent:
+    """
+    Autonomous Text-to-SQL Agent powered by the QwerySmith model family.
+
+    Features:
+    - Dual-Mode Inference: QLoRA SQL synthesis mode vs native base model chat reasoning.
+    - Sub-Millisecond Persistent Memory: B-Tree short-term turn storage + FTS5 BM25 verified query cache.
+    - Self-Healing Reflection Engine: Runtime AST & error diagnosis with auto-repair retry.
+    - Real-Time Grounding: Dynamic system clock and schema catalog synchronization.
+    """
+
+    PAPER_URL = "https://drive.google.com/file/d/1sN1eVn7LpOi6cLEI1euxOT2cByBoXLlg/view?usp=sharing"
+    CODEBASE_URL = "https://github.com/Cyrax321/QwerySmith-1.0"
+    MODELS = {
+        "1.1": {
+            "lora": "https://huggingface.co/Cyrax321/QwerySmith-1.1/tree/main",
+            "merged": "https://huggingface.co/Cyrax321/QwerySmith-1.1-Merged",
+            "gguf": "https://huggingface.co/Cyrax321/QwerySmith-1.1-GGUF/tree/main",
+            "hf_id": "Cyrax321/QwerySmith-1.1",
+        },
+        "1.0": {
+            "lora": "https://huggingface.co/Cyrax321/QwerySmith-1.0",
+            "merged": "https://huggingface.co/Cyrax321/QwerySmith-1.0-Merged",
+            "gguf": "https://huggingface.co/Cyrax321/QwerySmith-1.0-GGUF",
+            "hf_id": "Cyrax321/QwerySmith-1.0",
+        },
+    }
+
+    def __init__(self, model_path: str | None = None, memory_path: str | Path | None = None):
+        """Initializes model, tokenizer, persistent memory, reflection engine, and fast inference."""
+        self.model_path = self._resolve_model_path(model_path)
+        self.memory = AgentMemoryEngine(storage_path=memory_path)
+        self.healer = SelfHealingEngine()
+        self._load_model()
+
+    def _resolve_model_path(self, requested: str | None) -> str:
+        """Finds the most specific adapter or merged model path available."""
+        if requested and (Path(requested).exists() or "/" in requested):
+            return requested
+
+        candidates = [
+            "/content/drive/MyDrive/qwerysmith-1.1/adapter",
+            "/content/drive/MyDrive/qwerysmith-1.1",
+            "runs/qwerysmith-1.1/adapter",
+            "/content/drive/MyDrive/qwerysmith-1.0/adapter",
+            "runs/qwerysmith-1.0/adapter",
+            "Cyrax321/QwerySmith-1.1",
+            "Cyrax321/QwerySmith-1.1-Merged",
+            "Cyrax321/QwerySmith-1.0",
+            "Cyrax321/QwerySmith-1.0-Merged",
+        ]
+        for c in candidates:
+            if Path(c).exists() and (Path(c) / "adapter_config.json").exists():
+                return str(Path(c).resolve())
+            if Path(c).exists() and (Path(c) / "config.json").exists():
+                return str(Path(c).resolve())
+
+        return "Cyrax321/QwerySmith-1.1"
+
+    def _load_model(self):
+        """Loads model into GPU VRAM using Unsloth if present, or Hugging Face PEFT."""
+        print(f"[Loading] QwerySmith from: {self.model_path}")
+        t0 = time.time()
+        try:
+            from unsloth import FastLanguageModel
+            self.model, self.tok = FastLanguageModel.from_pretrained(
+                model_name=self.model_path,
+                max_seq_length=2048,
+                load_in_4bit=True,
+            )
+            FastLanguageModel.for_inference(self.model)
+            print(f"[Model] FastLanguageModel loaded in {time.time() - t0:.1f}s (4-bit optimized).")
+        except Exception as e:
+            print(f"  [Warning] Unsloth fast loader fallback ({e}). Using standard Transformers...")
+            import torch
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+            self.tok = AutoTokenizer.from_pretrained(self.model_path)
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_path,
+                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                device_map="auto",
+            )
+            self.model.eval()
+            print(f"[Model] Transformers model loaded in {time.time() - t0:.1f}s.")
+
+    @contextmanager
+    def disable_adapter_ctx(self):
+        """Temporarily bypasses fine-tuned LoRA adapter to access base model's full conversational abilities."""
+        if hasattr(self.model, "disable_adapter"):
+            try:
+                with self.model.disable_adapter():
+                    yield
+            except Exception:
+                yield
+        else:
+            yield
+
+    def generate_chat_text(self, messages: List[Dict[str, str]], max_tokens: int = 256) -> str:
+        """Generates natural conversational text with LoRA adapter temporarily disabled."""
+        import torch
+        import warnings
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        prompt = self.tok.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False,
+        )
+        enc = self.tok([prompt], return_tensors="pt").to(device)
+
+        with self.disable_adapter_ctx():
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                with torch.no_grad():
+                    gen = self.model.generate(
+                        **enc,
+                        max_new_tokens=max_tokens,
+                        temperature=0.7,
+                        top_p=0.9,
+                        do_sample=True,
+                        pad_token_id=self.tok.pad_token_id or self.tok.eos_token_id,
+                        use_cache=True,
+                    )
+
+        raw = self.tok.decode(gen[0][enc.input_ids.shape[1]:], skip_special_tokens=True)
+        raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+        return raw
+
+    def get_schema(self, conn: sqlite3.Connection) -> str:
+        """Helper to extract schema via tools module."""
+        return get_schema(conn)
+
+    def generate_sql(
+        self,
+        schema: str,
+        question: str,
+        failed_sql: Optional[str] = None,
+        error_feedback: Optional[str] = None,
+        memory_context: Optional[str] = None,
+    ) -> str:
+        """Translates natural language question and database schema into pure SQL."""
+        system_msg = (
+            "You are an expert Text-to-SQL database engine. Given a database schema and a question, "
+            "reply with exactly one executable SQLite query and nothing else.\n"
+            "Critical Rules:\n"
+            "1. Output ONLY the raw SQL query. Do not wrap in markdown quotes, comments, or prose.\n"
+            "2. Always prefix column names with their table name or table alias (e.g., Track.TrackId or t.TrackId) "
+            "whenever joining multiple tables to prevent ambiguous column errors.\n"
+            "3. Ensure all table and column names strictly match the schema."
+        )
+        user_content = f"Schema:\n{schema}\n\nQuestion: {question}"
+        if memory_context:
+            user_content += f"\n\n{memory_context}"
+
+        if error_feedback and failed_sql:
+            repair_prompt = self.healer.build_repair_prompt(question, failed_sql, error_feedback)
+            user_content += repair_prompt
+        elif error_feedback:
+            user_content += f"\n\nPrevious attempt failed with error:\n{error_feedback}\nPlease repair the query."
+
+        messages = [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_content},
+        ]
+
+        prompt = self.tok.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False,
+        )
+
+        import torch
+        import warnings
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        enc = self.tok([prompt], return_tensors="pt").to(device)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            with torch.no_grad():
+                gen = self.model.generate(
+                    **enc,
+                    max_new_tokens=256,
+                    do_sample=False,
+                    pad_token_id=self.tok.pad_token_id or self.tok.eos_token_id,
+                    use_cache=True,
+                )
+
+        raw = self.tok.decode(gen[0][enc.input_ids.shape[1]:], skip_special_tokens=True)
+        return clean_sql(raw)
+
+    def synthesize_human_response(self, question: str, sql: str, columns: list, rows: list) -> str:
+        """Translates database query results into friendly, clear, natural human language."""
+        if not rows:
+            data_summary = "The query executed successfully, but returned 0 matching records."
+        else:
+            header = ", ".join(columns)
+            sample_rows = "\n".join(str(r) for r in rows[:15])
+            data_summary = f"Columns: {header}\nRows ({len(rows)} total):\n{sample_rows}"
+            if len(rows) > 15:
+                data_summary += f"\n... ({len(rows) - 15} additional rows)"
+
+        now_str = datetime.now().strftime("%A, %B %d, %Y %I:%M %p")
+        system_msg = (
+            f"You are QwerySmith, an intelligent AI database assistant and business data analyst. "
+            f"Current real-time timestamp: {now_str}. "
+            "Given a user question, executed SQL query, and live database results, explain the findings directly and conversationally in natural human English. "
+            "Be clear, concise, and helpful. Mention key numbers and takeaways."
+        )
+        user_msg = (
+            f"User Question: {question}\n\n"
+            f"Executed SQL: {sql}\n\n"
+            f"Live Database Results:\n{data_summary}\n\n"
+            "Please summarize this answer directly in friendly, professional natural human language:"
+        )
+
+        return self.generate_chat_text([
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_msg},
+        ], max_tokens=220)
+
+    def chat_conversational(
+        self,
+        user_prompt: str,
+        table_names: Optional[List[str]] = None,
+        last_context: Optional[dict] = None,
+    ) -> str:
+        """Responds to general chit-chat, conceptual questions, coding help, and explanations."""
+        now_str = datetime.now().strftime("%A, %B %d, %Y %I:%M %p")
+        tables_str = ", ".join(table_names) if table_names else "none"
+        system_msg = (
+            f"You are QwerySmith, an advanced conversational AI assistant and expert SQL database engineer. "
+            f"Real-time timestamp: {now_str}. "
+            f"You are connected to a live database containing tables: [{tables_str}]. "
+            "You can engage in natural conversation, explain database and SQL concepts, write code, "
+            "or help the user analyze data and diagnose query errors. Reply naturally, warmly, and helpfully."
+        )
+        context_str = ""
+        if last_context:
+            if not last_context.get("success", True):
+                context_str = (
+                    f"\n\n[System Note: The user previously asked '{last_context.get('question')}'. "
+                    f"The generated query was: '{last_context.get('sql')}'. "
+                    f"It failed with SQLite error: '{last_context.get('error')}'. "
+                    f"If the user asks why it failed, explain this exact error technically and describe how to correct it.]"
+                )
+            elif last_context.get("sql"):
+                context_str = f"\n\n[System Note: The last query executed was: '{last_context.get('sql')}']"
+
+        return self.generate_chat_text([
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_prompt + context_str},
+        ], max_tokens=350)
+
+    def query(
+        self,
+        db_path: str | Path,
+        question: str,
+        auto_repair: bool = True,
+        session_id: str = "default_session",
+    ) -> dict:
+        """End-to-end execution: NL Question -> Memory Recall -> SQL -> DB Sandbox -> Human Synthesis."""
+        db_name = Path(db_path).name
+        schema = get_schema(db_path)
+
+        if not schema:
+            return {"error": "Database contains no tables.", "success": False}
+
+        # Ultra-fast memory recall (<1ms)
+        mem_res = self.memory.recall(session_id=session_id, db_name=db_name, question=question)
+
+        t_start = time.perf_counter()
+        sql = self.generate_sql(schema, question, memory_context=mem_res.prompt_context)
+        latency_gen = (time.perf_counter() - t_start) * 1000
+
+        # Execute query tool call
+        exec_res = execute_query(db_path, sql)
+
+        if exec_res["success"]:
+            human_ans = self.synthesize_human_response(question, sql, exec_res["columns"], exec_res["rows"])
+            self.memory.commit(
+                session_id=session_id,
+                db_name=db_name,
+                question=question,
+                sql=sql,
+                columns=exec_res["columns"],
+                rows=exec_res["rows"],
+                human_summary=human_ans,
+                success=True,
+                latency_gen_ms=latency_gen,
+                latency_exec_ms=exec_res["latency_exec_ms"],
+            )
+            return {
+                "question": question,
+                "sql": sql,
+                "columns": exec_res["columns"],
+                "rows": exec_res["rows"],
+                "human_answer": human_ans,
+                "latency_gen_ms": latency_gen,
+                "latency_exec_ms": exec_res["latency_exec_ms"],
+                "memory_latency_ms": mem_res.retrieval_ms,
+                "memory_recalled": bool(mem_res.prompt_context),
+                "is_followup": mem_res.is_followup,
+                "success": True,
+            }
+
+        # Failure / Auto-repair path
+        err = exec_res["error"]
+        if auto_repair:
+            print(f"  [Warning] Initial SQL failed: {err}")
+            print("  [Reflect] Engaging self-healing reflection engine...")
+            repaired_sql = self.generate_sql(
+                schema,
+                question,
+                failed_sql=sql,
+                error_feedback=str(err),
+                memory_context=mem_res.prompt_context,
+            )
+
+            repair_exec = execute_query(db_path, repaired_sql)
+            if repair_exec["success"]:
+                human_ans = self.synthesize_human_response(
+                    question, repaired_sql, repair_exec["columns"], repair_exec["rows"]
+                )
+                self.healer.record_repair(session_id, db_name, question, sql, repaired_sql, str(err), success=True)
+                self.memory.commit(
+                    session_id=session_id,
+                    db_name=db_name,
+                    question=question,
+                    sql=repaired_sql,
+                    columns=repair_exec["columns"],
+                    rows=repair_exec["rows"],
+                    human_summary=human_ans,
+                    success=True,
+                    repaired_from=sql,
+                    error_msg=str(err),
+                    latency_gen_ms=latency_gen,
+                    latency_exec_ms=repair_exec["latency_exec_ms"],
+                )
+                return {
+                    "question": question,
+                    "sql": repaired_sql,
+                    "repaired_from": sql,
+                    "columns": repair_exec["columns"],
+                    "rows": repair_exec["rows"],
+                    "human_answer": human_ans,
+                    "latency_gen_ms": latency_gen,
+                    "latency_exec_ms": repair_exec["latency_exec_ms"],
+                    "memory_latency_ms": mem_res.retrieval_ms,
+                    "memory_recalled": bool(mem_res.prompt_context),
+                    "is_followup": mem_res.is_followup,
+                    "success": True,
+                }
+            else:
+                self.healer.record_repair(session_id, db_name, question, sql, repaired_sql, str(repair_exec["error"]), success=False)
+                self.memory.commit(
+                    session_id=session_id,
+                    db_name=db_name,
+                    question=question,
+                    sql=repaired_sql,
+                    success=False,
+                    repaired_from=sql,
+                    error_msg=str(repair_exec["error"]),
+                )
+                return {
+                    "question": question,
+                    "sql": repaired_sql,
+                    "attempted_original": sql,
+                    "error": str(repair_exec["error"]),
+                    "memory_latency_ms": mem_res.retrieval_ms,
+                    "success": False,
+                }
+
+        return {"question": question, "sql": sql, "error": str(err), "success": False}
+
+    def interactive_chat(self, db_path: str | Path = "company_store.db"):
+        """Launches an interactive live chat loop with memory, tools, and reflection."""
+        db_file = init_sample_db(db_path)
+        tables = get_tables(db_file)
+        session_id = f"session_{int(time.time())}"
+
+        print("\n" + "=" * 72)
+        print("QWERYSMITH 1.1 INTERACTIVE DATABASE & CONVERSATIONAL AGENT")
+        print("=" * 72)
+        print(f"Connected Database : {db_file.name}")
+        print(f"Available Tables   : {', '.join(tables)}")
+        print(f"Loaded Model       : {self.model_path}")
+        print("Special Commands   : :schema, :tables, :sample <table>, :memory, :clearmem, :db <path>, :exit")
+        print("-" * 72)
+        print("You can chat normally or ask live database queries:")
+        print("  • 'Hey! How are you doing today?'")
+        print("  • 'What is an inner join vs left join in SQL?'")
+        print("  • 'Which customers spent more than $1,000 in total?'")
+        print("  • 'What is our top-selling product by revenue?'")
+        print("  • 'What is today's date and how many orders do we have?'")
+        print("=" * 72 + "\n")
+
+        last_interaction = None
+        while True:
+            try:
+                user_input = input("You: ").strip()
+            except (KeyboardInterrupt, EOFError):
+                print("\nGoodbye!")
+                break
+
+            if not user_input:
+                continue
+
+            # Command Handlers
+            if user_input.lower() in [":exit", ":quit", "exit", "quit", ":q"]:
+                print("Session ended. Happy querying!")
+                break
+
+            if user_input.lower() in [":memory", ":mem"]:
+                st = self.memory.stats()
+                print("\nPERSISTENT AGENTIC MEMORY STATUS:")
+                print("-" * 50)
+                print(f"  • Active Session ID       : {session_id}")
+                print(f"  • Total Recorded Turns    : {st['total_turns']}")
+                print(f"  • Unique Chat Sessions    : {st['total_sessions']}")
+                print(f"  • Verified Past Queries   : {st['total_verified_queries']}")
+                print(f"  • Self-Healed Experiences : {st['total_self_healed_patterns']}")
+                print(f"  • Storage Database Path   : {st['storage_file']}")
+                if st["queries_per_db"]:
+                    print("  • Verified Queries by DB  :")
+                    for db_k, cnt in st["queries_per_db"].items():
+                        print(f"    - {db_k}: {cnt} queries")
+                print("-" * 50 + "\n")
+                continue
+
+            if user_input.lower() in [":clearmem", ":clear_memory"]:
+                cleared = self.memory.clear_session(session_id)
+                print(f"Cleared {cleared} turns from active session memory.\n")
+                continue
+
+            if user_input.lower() == ":schema":
+                print("\nDATABASE SCHEMA DDL:")
+                print("-" * 50)
+                print(get_schema(db_file))
+                print("-" * 50 + "\n")
+                continue
+
+            if user_input.lower() == ":tables":
+                counts = get_table_counts(db_file)
+                print("\nDATABASE SUMMARY:")
+                for t, cnt in counts.items():
+                    print(f"  • {t:<15} ({cnt} rows)")
+                print()
+                continue
+
+            if user_input.lower().startswith(":sample"):
+                parts = user_input.split()
+                if len(parts) < 2:
+                    print("Usage: :sample <table_name>")
+                    continue
+                tname = parts[1]
+                s_res = get_table_sample(db_file, tname)
+                if s_res.get("error"):
+                    print(f"Error reading table '{tname}': {s_res['error']}")
+                else:
+                    print(f"\nSample from '{tname}':")
+                    print(format_table(s_res["columns"], s_res["rows"]))
+                    print()
+                continue
+
+            if user_input.lower().startswith(":db"):
+                parts = user_input.split(maxsplit=1)
+                if len(parts) < 2:
+                    print("Usage: :db /path/to/database.db")
+                    continue
+                new_db = Path(parts[1]).resolve()
+                if not new_db.exists():
+                    print(f"[Error] Database file not found: {new_db}")
+                    continue
+                db_file = new_db
+                tables = get_tables(db_file)
+                print(f"[OK] Switched active database to: {db_file.name} ({len(tables)} tables)")
+                continue
+
+            # Classify Intent
+            intent = classify_intent(user_input, tables)
+
+            # Route 1: Real-time System Queries
+            if intent == "REALTIME_SYS":
+                now = datetime.now()
+                print(f"\nReal-Time System Status:")
+                print(f"  • Current Date & Time : {now.strftime('%A, %B %d, %Y - %I:%M:%S %p')}")
+                print(f"  • Connected Database  : {db_file.name} ({len(tables)} tables active)\n")
+                continue
+
+            # Route 2: Database Metadata
+            if intent == "DB_META":
+                counts = get_table_counts(db_file)
+                print(f"\nLive Database Overview ({db_file.name}):")
+                for t, cnt in counts.items():
+                    print(f"  • Table '{t}': {cnt} live records")
+                print()
+                continue
+
+            # Route 3: General Chit-Chat / Concepts / Reasoning
+            if intent == "CONVERSATIONAL":
+                print("\nFormulating response...")
+                reply = self.chat_conversational(user_input, tables, last_context=last_interaction)
+                print(f"\nQwerySmith:\n  {reply}\n")
+                continue
+
+            # Route 4: Real-time Database Query & Natural Language Synthesis
+            mem_preview = self.memory.recall(session_id, db_file.name, user_input)
+            if mem_preview.is_followup and mem_preview.previous_turn:
+                print(f"\n\033[1;36m[Memory] Follow-up detected. Injected prior turn context ({mem_preview.retrieval_ms:.2f}ms)\033[0m")
+            elif mem_preview.exemplars:
+                print(f"\n\033[1;36m[Memory] Recalled {len(mem_preview.exemplars)} verified schema exemplar(s) ({mem_preview.retrieval_ms:.2f}ms)\033[0m")
+
+            print("\nSynthesizing SQL query...")
+            res = self.query(db_file, user_input, session_id=session_id)
+            last_interaction = res
+
+            if res["success"]:
+                print(f"\nQwerySmith:")
+                print(f"  {res.get('human_answer', '')}\n")
+
+                cols = res["columns"]
+                rows = res["rows"]
+                print(f"Live Data ({len(rows)} rows, {res.get('latency_gen_ms', 0):.0f}ms gen, {res.get('memory_latency_ms', 0):.2f}ms mem):")
+                print(format_table(cols, rows))
+
+                print(f"\nGenerated SQL:")
+                print(f"   \033[1;32m{res['sql']}\033[0m")
+                if "repaired_from" in res:
+                    print(f"   \033[1;33m(Self-healed from: {res['repaired_from']})\033[0m")
+                print()
+            else:
+                print(f"\n[Failed] Execution Failed: {res.get('error', 'Unknown error')}")
+                print(f"   Attempted SQL: {res.get('sql', 'N/A')}")
+                if "attempted_original" in res:
+                    print(f"   Initial SQL:   {res.get('attempted_original')}")
+                print()
+
+
+def chat_loop(
+    model_path: str | None = None,
+    db_path: str | Path = "company_store.db",
+    memory_path: str | Path | None = None,
+):
+    """One-click Python entry point for Colab, Jupyter, or terminal."""
+    agent = QwerySmithAgent(model_path=model_path, memory_path=memory_path)
+    agent.interactive_chat(db_path=db_path)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Live interactive chat agent for QwerySmith Text-to-SQL.")
+    parser.add_argument("--model", default=None, help="Path to fine-tuned LoRA adapter or HuggingFace repo.")
+    parser.add_argument("--db", default="company_store.db", help="Path to SQLite database.")
+    parser.add_argument("--memory", default=None, help="Path to SQLite persistent agentic memory file.")
+    args = parser.parse_args()
+
+    chat_loop(model_path=args.model, db_path=args.db, memory_path=args.memory)
+
+
+if __name__ == "__main__":
+    main()

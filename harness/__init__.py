@@ -1,25 +1,23 @@
-#!/usr/bin/env python3
 """
-agent.py -- QwerySmith Interactive Autonomous Database Agent (Root Entrypoint)
+harness -- QwerySmith Agentic Execution, Memory, Self-Healing & Evaluation Harness Package.
 
-Forwards to the modular harness package (`harness.agent`).
-Provides 100% backward compatibility for Google Colab, Jupyter, and CLI workflows.
+Exposes:
+- `QwerySmithAgent`: Autonomous conversational and text-to-SQL agent.
+- `AgentMemoryEngine`: Ultra-fast (<1ms) persistent agentic memory layer.
+- `SelfHealingEngine`: Reflection and error-repair engine.
+- Tool Calls: `execute_query`, `get_schema`, `get_tables`, `get_table_counts`, `get_table_sample`, `init_sample_db`, `classify_intent`, `format_table`, `clean_sql`.
 """
 
-from harness.agent import (
-    QwerySmithAgent,
-    chat_loop,
-    main,
-)
-from harness.memory import (
+from .agent import QwerySmithAgent, chat_loop, main
+from .memory import (
     AgentMemoryEngine,
     ExemplarRecord,
     MemoryRetrievalResult,
     MemoryTurn,
     is_followup_question,
 )
-from harness.self_healing import RepairRecord, SelfHealingEngine
-from harness.tools import (
+from .self_healing import RepairRecord, SelfHealingEngine
+from .tools import (
     classify_intent,
     clean_sql,
     execute_query,
@@ -52,6 +50,3 @@ __all__ = [
     "format_table",
     "clean_sql",
 ]
-
-if __name__ == "__main__":
-    main()
