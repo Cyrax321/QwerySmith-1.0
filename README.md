@@ -37,6 +37,11 @@ QwerySmith is engineered around three interconnected architectural pillars desig
 
 ---
 
+### Pillar I: Specialized Foundation Model Family
+- **Base Substrate**: `unsloth/Qwen3-4B` base model fine-tuned via Low-Rank Adaptation (QLoRA).
+- **Curriculum Mixture**: 50/50 balanced synthetic and enterprise SQL context mix (`sql-create-context` + `synthetic_text_to_sql`).
+- **Optimization**: Learning rate $1 	imes 10^{-4}$ with cosine annealing, LoRA rank $r=16$, scale $\alpha=32$, and dropout 0.05 preventing distribution collapse.
+
 ## 📂 Repository Layout
 
 ```text
