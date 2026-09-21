@@ -117,6 +117,10 @@ User Natural Query ---> [Schema Linker & Value Grounder] ---> [Dual-Mode QwerySm
 
 ---
 
+
+
+> **Contamination-Immune Partitioning**: All dataset splits are carved prior to tokenization using schema-level hash partitioning in `data_sources.py`, strictly guaranteeing zero schema overlap between training and held-out evaluation splits.
+
 ## 🚀 Key Capabilities
 
 | Capability | Technical Mechanism | Production Benefit |
