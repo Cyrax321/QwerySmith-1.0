@@ -509,6 +509,20 @@ When multiple candidate SQL hypotheses are sampled across stochastic decoding be
 3. **Complexity Scorer Tie-Breaking (`query_complexity`)**: When candidate clusters reach parity in quorum voting, the tie is broken via `query_complexity()` which computes an AST clause penalty score (fewer redundant joins and subqueries).
 
 
+
+```python
+from harness.decoding import CandidateSelector
+
+selector = CandidateSelector(db_path="company_store.db")
+candidates = [
+    "SELECT * FROM customers WHERE id = 1;",
+    "SELECT customers.* FROM customers WHERE customers.id = 1;",
+]
+result = selector.select_best_candidate(candidates)
+print("Consensus Chosen SQL:", result.chosen_sql)
+print("Consensus Ratio:", result.consensus_ratio)
+```
+
 ### AST Self-Healing Reflection
 
 The `SelfHealingEngine` intercepts database runtime errors and guides multi-step iterative recovery:
