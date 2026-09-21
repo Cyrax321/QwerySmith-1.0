@@ -13,11 +13,11 @@ Codebase:
     https://github.com/Cyrax321/QwerySmith-1.0
 
 Model Links:
-    QwerySmith 1.1 (Recommended):
+    QwerySmith 1.1:
         • LoRA Adapter: https://huggingface.co/Cyrax321/QwerySmith-1.1/tree/main
         • Merged Model: https://huggingface.co/Cyrax321/QwerySmith-1.1-Merged
         • GGUF Quantized Model: https://huggingface.co/Cyrax321/QwerySmith-1.1-GGUF/tree/main
-    QwerySmith 1.0 (Baseline):
+    QwerySmith 1.0:
         • LoRA Adapter: https://huggingface.co/Cyrax321/QwerySmith-1.0
         • Merged Model: https://huggingface.co/Cyrax321/QwerySmith-1.0-Merged
         • GGUF Quantized Model: https://huggingface.co/Cyrax321/QwerySmith-1.0-GGUF
@@ -313,12 +313,12 @@ class QwerySmithAgent:
         https://drive.google.com/file/d/1sN1eVn7LpOi6cLEI1euxOT2cByBoXLlg/view?usp=sharing
 
     Official Model Links:
-        *QwerySmith 1.1* (Recommended):
+        *QwerySmith 1.1*:
         • LoRA Adapter: https://huggingface.co/Cyrax321/QwerySmith-1.1/tree/main
         • Merged Model: https://huggingface.co/Cyrax321/QwerySmith-1.1-Merged
         • GGUF Quantized Model: https://huggingface.co/Cyrax321/QwerySmith-1.1-GGUF/tree/main
 
-        *QwerySmith 1.0* (Baseline):
+        *QwerySmith 1.0*:
         • LoRA Adapter: https://huggingface.co/Cyrax321/QwerySmith-1.0
         • Merged Model: https://huggingface.co/Cyrax321/QwerySmith-1.0-Merged
         • GGUF Quantized Model: https://huggingface.co/Cyrax321/QwerySmith-1.0-GGUF

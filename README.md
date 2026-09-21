@@ -32,7 +32,7 @@
 
 QwerySmith is developed across two complementary releases:
 
-| Feature / Aspect | **QwerySmith 1.0** (Baseline) | **QwerySmith 1.1** (Latest Production) |
+| Feature / Aspect | **QwerySmith 1.0** | **QwerySmith 1.1** |
 |:---|:---|:---|
 | **Base Foundation** | `unsloth/Qwen3-4B` | `unsloth/Qwen3-4B` |
 | **Training Data** | 10,000 rows `b-mc2/sql-create-context` (single-source) | 10,000 rows balanced 50/50 mix (`sql-create-context` + `synthetic_text_to_sql`) |
@@ -79,14 +79,14 @@ All evaluations use in-memory SQLite instances pre-populated with synthetic or g
 
 All models are published in three optimized formats to support production, edge, and researcher workflows:
 
-### QwerySmith 1.1 (Recommended)
+### QwerySmith 1.1
 | Format | Repository | Size | Ideal Use Case |
 |---|---|---|---|
 | **LoRA Adapter** | [`Cyrax321/QwerySmith-1.1`](https://huggingface.co/Cyrax321/QwerySmith-1.1/tree/main) | ~132 MB | Fast fine-tuning & inference via Unsloth / PEFT |
 | **Merged 16-Bit** | [`Cyrax321/QwerySmith-1.1-Merged`](https://huggingface.co/Cyrax321/QwerySmith-1.1-Merged) | ~8.06 GB | Standalone deployment via vLLM, TGI, or Hugging Face Pipelines |
 | **Quantized GGUF** | [`Cyrax321/QwerySmith-1.1-GGUF`](https://huggingface.co/Cyrax321/QwerySmith-1.1-GGUF/tree/main) | ~2.5 GB | Ultra-fast local execution with Ollama or `llama.cpp` |
 
-### QwerySmith 1.0 (Baseline)
+### QwerySmith 1.0
 | Format | Repository | Size | Ideal Use Case |
 |---|---|---|---|
 | **LoRA Adapter** | [`Cyrax321/QwerySmith-1.0`](https://huggingface.co/Cyrax321/QwerySmith-1.0) | ~132 MB | Legacy baseline adapter |
