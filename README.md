@@ -224,7 +224,8 @@ cd QwerySmith-1.0
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies and runtime harness
+# Install dependencies and runtime harness in editable mode
+pip install --upgrade pip
 pip install -r requirements.txt
 pip install -e .
 
