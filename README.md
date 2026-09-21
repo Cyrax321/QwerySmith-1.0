@@ -320,7 +320,7 @@ python QwerySmith/QwerySmith.py --stage all --out runs/qwerysmith-1.0
 python QwerySmith/Qwerysmith_V11.py --stage all --out runs/qwerysmith-1.1 \
     --mix sql_create_context:5000,gretel:5000 \
     --heldout sqale,large_schema \
-    --lr 1e-4 --dropout 0.05
+    --lr 1e-4 --dropout 0.05 --warmup-ratio 0.1
 ```
 
 ---
