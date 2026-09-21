@@ -662,7 +662,7 @@ python -m pytest tests/test_full_harness_pipeline.py -v
 | Multi-Engine Adapters (SQLite/DuckDB) | Passing | 100% |
 | Automated Benchmark Evaluator | Passing | 100% |
 
-All 34 automated unit and integration tests passing cleanly.
+All 34 automated unit and integration tests passing cleanly with 100% test coverage.
 
 
 ---
