@@ -130,7 +130,7 @@ class SchemaLinker:
         score += col_matches * 1.5
         
         if getattr(self, "table_descriptions", None):
-            desc = self.table_descriptions.get(table_name, "")
+            desc = self.table_descriptions.get(table_node.name, "")
             if desc and (self._tokenize(desc) & q_tokens):
                 score += 4.0
 
