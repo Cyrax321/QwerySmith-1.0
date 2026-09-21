@@ -364,6 +364,37 @@ print(f"Valid SQL Rate:     {summary.valid_sql_rate * 100:.1f}%")
 summary.to_csv("benchmark_results.csv")
 ```
 
+
+### 💬 Multi-Turn Dialogue State Tracking & Session Persistence
+
+The `DialogueStateTracker` maintains conversational context, resolves anaphoric follow-up constraints, and serializes state:
+
+```python
+from harness.conversation import DialogueStateTracker
+
+tracker = DialogueStateTracker()
+
+# Turn 1: Primary query
+tracker.record_turn(
+    session_id="user_42",
+    db_name="store.db",
+    question="Which customers live in California?",
+    sql="SELECT * FROM customers WHERE state = 'CA';",
+    columns=["id", "name", "state"],
+    rows=[(1, "Alice", "CA")],
+)
+
+# Turn 2: Follow-up question automatically resolved
+context_prompt = tracker.build_context_prompt("user_42", "And who spent over $500?")
+
+# Export and persist conversation session
+session_dict = tracker.export_session("user_42")
+
+# Restore session in a new process
+tracker_restored = DialogueStateTracker()
+tracker_restored.restore_session(session_dict)
+```
+
 ### 🚀 Running the Live Interactive Chat Loop
 
 #### In Google Colab or Jupyter Notebook:
