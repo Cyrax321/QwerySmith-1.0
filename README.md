@@ -223,6 +223,17 @@ ollama run Cyrax321/QwerySmith-1.1-GGUF
 ollama run Cyrax321/QwerySmith-1.0-GGUF
 ```
 
+### 3. High-Throughput Production Serving with vLLM
+
+```bash
+# Serve merged 16-bit QwerySmith 1.1 model with OpenAI-compatible API
+vllm serve Cyrax321/QwerySmith-1.1-Merged \
+    --port 8000 \
+    --max-model-len 2048 \
+    --gpu-memory-utilization 0.85
+```
+
+
 ---
 
 ## ⚡ Hardware Resource Profile
