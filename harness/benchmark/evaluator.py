@@ -1,3 +1,4 @@
+import csv
 #!/usr/bin/env python3
 """
 harness/benchmark/evaluator.py -- Text-to-SQL Benchmark Evaluation Harness
@@ -61,6 +62,14 @@ class BenchmarkSummary:
             "repair_recovery_rate": round(self.repair_recovery_rate * 100, 2),
             "avg_latency_ms": round(self.avg_latency_ms, 2),
         }
+    def to_csv(self, filepath: str) -> None:
+        """Dumps detailed per-sample benchmark results to a CSV file."""
+        with open(filepath, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["item_id", "question", "gold_sql", "pred_sql", "valid_sql", "execution_match", "exact_match", "latency_ms"])
+            for r in self.item_results:
+                writer.writerow([r.item_id, r.question, r.gold_sql, r.pred_sql, r.valid_sql, r.execution_match, r.exact_match, r.latency_ms])
+
 
 
 def _compare_results(res_gold: Dict[str, Any], res_pred: Dict[str, Any]) -> bool:
