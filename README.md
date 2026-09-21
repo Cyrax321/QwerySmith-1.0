@@ -52,6 +52,32 @@ QwerySmith is engineered around three interconnected architectural pillars desig
 - **Syntactic Complexity Tie-Breaker**: Selects the candidate with lowest AST structural complexity among equivalent result sets.
 - **Levenshtein Error Reflection**: Diagnoses runtime SQL exceptions and repairs misspelled column and table identifiers in real time.
 
+
+### 🔄 End-to-End Query Execution Lifecycle
+
+```text
+User Natural Query ---> [Schema Linker & Value Grounder] ---> [Dual-Mode QwerySmith Model]
+                                                                        |
+                                                            (Candidate SQL Hypotheses)
+                                                                        |
+                                                                        v
+                                                          [Isolated Sandbox Execution]
+                                                                        |
+                                    +-----------------------------------+-----------------------------------+
+                                    |                                                                       |
+                          [Execution Success]                                                      [Execution Failure]
+                                    |                                                                       |
+                    [Semantic Result Consensus Voting]                                            [AST Self-Healing Engine]
+                                    |                                                                       |
+                    [Syntactic Complexity Tie-Break]                                      [Levenshtein Identifier Repair]
+                                    |                                                                       |
+                                    v                                                                       v
+                    [Selected Validated SQL Query] <------------------------------------+ (Re-Execute Sandbox)
+                                    |
+                                    v
+                    [Natural Language Analyst Summary]
+```
+
 ## 📂 Repository Layout
 
 ```text
