@@ -26,8 +26,8 @@ class TestAdapterTransaction(unittest.TestCase):
                 raise ValueError("Simulated failure")
         except ValueError:
             pass
-        res = self.adapter.execute_query("SELECT COUNT(*) FROM items;")
-        self.assertEqual(res["rows"][0][0], 0)
+        res = self.adapter.execute("SELECT COUNT(*) FROM items;")
+        self.assertEqual(res.rows[0][0], 0)
 
 
 if __name__ == "__main__":

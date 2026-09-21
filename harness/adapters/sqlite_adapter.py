@@ -91,10 +91,12 @@ class SQLiteAdapter(DatabaseAdapter):
     @contextmanager
     def transaction(self):
         """Context manager providing an atomic transaction with rollback on failure."""
-        conn = self.get_connection()
+        conn = sqlite3.connect(str(self.db_path))
         try:
             yield conn
             conn.commit()
         except Exception:
             conn.rollback()
             raise
+        finally:
+            conn.close()
