@@ -530,7 +530,7 @@ The `SelfHealingEngine` intercepts database runtime errors and guides multi-step
 - **Structural Taxonomy**: Categorizes runtime SQLite exceptions into `NO_SUCH_COLUMN`, `NO_SUCH_TABLE`, and syntax failures.
 - **Identifier Diagnosis**: Matches unrecognized schema identifiers against the extracted schema graph using Levenshtein distance and character n-gram similarity over active table nodes.
 - **Empty Result Set Anomalies**: Detects when a query executes syntactically but returns zero rows due to over-constrained equality filters, suggesting case-insensitive `LIKE` matching or relaxed boundary predicates.
-- **Retry Budget Exhaustion**: Bounded by `max_repair_attempts` to guarantee bounded latency SLAs.
+- **Retry Budget Exhaustion**: Bounded by `max_repair_attempts` to guarantee strictly bounded latency SLAs (<100ms repair budget).
 
 - **Real-Time Temporal Grounding**: Accurately answers date-dependent and relative-time queries without hallucinating historical dates.
 - **Ultra-Fast Persistent Agentic Memory (`harness/memory.py`)**: Built with SQLite WAL mode, B-Tree session indexing, and FTS5 BM25 search (<1ms retrieval latency). Resolves conversational follow-ups and accumulates verified/healed SQL patterns across sessions.
