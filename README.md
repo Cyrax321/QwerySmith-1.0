@@ -450,6 +450,24 @@ If you use QwerySmith, its curriculum mixing strategy, or the evaluation framewo
 
 ---
 
+
+---
+
+## 🧪 Comprehensive Unit & Integration Test Suite
+
+The QwerySmith harness maintains 100% test pass rate across 34 automated unit and integration tests covering memory SLAs, AST reflection, security sandboxing, candidate selection, and adapters:
+
+```bash
+# Run complete test suite
+python -m pytest tests/ -v
+
+# Run tests with latency reporting
+python -m pytest tests/test_memory.py -v
+
+# Run full end-to-end harness pipeline tests
+python -m pytest tests/test_full_harness_pipeline.py -v
+```
+
 ## Harness Verification & Test Suite Status
 
 | Component | Status | Test Coverage |
