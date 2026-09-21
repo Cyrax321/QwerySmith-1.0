@@ -206,3 +206,11 @@ def execute_sandboxed_query(
             "success": False,
             "timed_out": False,
         }
+
+
+RESTRICTED_SYSTEM_TABLES = {"sqlite_master", "sqlite_temp_master", "sqlite_schema"}
+
+def is_system_table_query(sql: str) -> bool:
+    """Checks if query references internal SQLite schema tables."""
+    lowered = sql.lower()
+    return any(tbl in lowered for tbl in RESTRICTED_SYSTEM_TABLES)
