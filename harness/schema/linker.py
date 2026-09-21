@@ -44,7 +44,8 @@ class SchemaLinker:
     expands the foreign key graph to ensure join-completeness, and prunes unused schema noise.
     """
 
-    def __init__(self, conn_or_path: Union[sqlite3.Connection, str, Path]):
+    def __init__(self, conn_or_path: Union[sqlite3.Connection, str, Path], table_descriptions: Optional[Dict[str, str]] = None):
+        self.table_descriptions: Dict[str, str] = table_descriptions or {}
         self.tables: Dict[str, TableNode] = {}
         self.adj_graph: Dict[str, Set[str]] = collections.defaultdict(set)
         self.fk_relations: List[ForeignKeyRelation] = []
@@ -127,6 +128,12 @@ class SchemaLinker:
                 col_matches += 1
 
         score += col_matches * 1.5
+        
+        if getattr(self, "table_descriptions", None):
+            desc = self.table_descriptions.get(table_name, "")
+            if desc and (self._tokenize(desc) & q_tokens):
+                score += 4.0
+
         return score
 
     def _shortest_path(self, start: str, target: str) -> List[str]:
