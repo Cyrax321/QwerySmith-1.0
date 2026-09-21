@@ -183,3 +183,14 @@ class ExecutionGuidedSelector:
             latency_exec_ms=chosen.latency_ms,
             all_evaluations=evaluations,
         )
+
+
+def query_complexity(sql: str) -> int:
+    """Computes a structural complexity score based on tokens, clauses, and subqueries."""
+    tokens = sql.strip().split()
+    score = len(tokens)
+    upper = sql.upper()
+    score += upper.count("JOIN") * 5
+    score += upper.count("SELECT") * 3
+    score += upper.count("WHERE") * 2
+    return score
