@@ -1,4 +1,3 @@
-import csv
 #!/usr/bin/env python3
 """
 harness/benchmark/evaluator.py -- Text-to-SQL Benchmark Evaluation Harness
@@ -6,6 +5,7 @@ harness/benchmark/evaluator.py -- Text-to-SQL Benchmark Evaluation Harness
 
 from __future__ import annotations
 
+import csv
 import json
 import sqlite3
 import time
