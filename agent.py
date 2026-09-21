@@ -43,6 +43,8 @@ import sys
 import time
 from pathlib import Path
 
+from memory import AgentMemoryEngine, MemoryRetrievalResult
+
 
 # --------------------------------------------------------------------------
 # 1. Sample Enterprise Database Generator
@@ -344,9 +346,10 @@ class QwerySmithAgent:
         },
     }
 
-    def __init__(self, model_path: str | None = None):
-        """Initializes model, tokenizer, and fast inference pipeline."""
+    def __init__(self, model_path: str | None = None, memory_path: str | Path | None = None):
+        """Initializes model, tokenizer, persistent memory engine, and fast inference pipeline."""
         self.model_path = self._resolve_model_path(model_path)
+        self.memory = AgentMemoryEngine(storage_path=memory_path)
         self._load_model()
 
     def _resolve_model_path(self, requested: str | None) -> str:
@@ -455,6 +458,7 @@ class QwerySmithAgent:
         question: str,
         failed_sql: str | None = None,
         error_feedback: str | None = None,
+        memory_context: str | None = None,
     ) -> str:
         """Translates natural language question and database schema into pure SQL."""
         system_msg = (
@@ -467,6 +471,8 @@ class QwerySmithAgent:
             "3. Ensure all table and column names strictly match the schema."
         )
         user_content = f"Schema:\n{schema}\n\nQuestion: {question}"
+        if memory_context:
+            user_content += f"\n\n{memory_context}"
         if error_feedback and failed_sql:
             user_content += (
                 f"\n\nPrevious attempted query:\n```sql\n{failed_sql}\n```\n\n"
@@ -571,7 +577,13 @@ class QwerySmithAgent:
             {"role": "user", "content": user_prompt + context_str},
         ], max_tokens=350)
 
-    def query(self, db_path: str | Path, question: str, auto_repair: bool = True) -> dict:
+    def query(
+        self,
+        db_path: str | Path,
+        question: str,
+        auto_repair: bool = True,
+        session_id: str = "default_session",
+    ) -> dict:
         """End-to-end execution: NL Question -> SQL -> DB Sandbox Execution -> Human Synthesis."""
         conn = sqlite3.connect(str(db_path))
         schema = self.get_schema(conn)
@@ -580,8 +592,13 @@ class QwerySmithAgent:
             conn.close()
             return {"error": "Database contains no tables.", "success": False}
 
+        db_name = Path(db_path).name
+
+        # Ultra-fast memory recall (<1ms)
+        mem_res = self.memory.recall(session_id=session_id, db_name=db_name, question=question)
+
         t_start = time.perf_counter()
-        sql = self.generate_sql(schema, question)
+        sql = self.generate_sql(schema, question, memory_context=mem_res.prompt_context)
         latency_gen = (time.perf_counter() - t_start) * 1000
 
         # Execution phase
@@ -597,6 +614,20 @@ class QwerySmithAgent:
             # Human Language Synthesis
             human_ans = self.synthesize_human_response(question, sql, columns, rows)
 
+            # Auto-commit to persistent memory
+            self.memory.commit(
+                session_id=session_id,
+                db_name=db_name,
+                question=question,
+                sql=sql,
+                columns=columns,
+                rows=rows,
+                human_summary=human_ans,
+                success=True,
+                latency_gen_ms=latency_gen,
+                latency_exec_ms=latency_exec,
+            )
+
             return {
                 "question": question,
                 "sql": sql,
@@ -605,6 +636,9 @@ class QwerySmithAgent:
                 "human_answer": human_ans,
                 "latency_gen_ms": latency_gen,
                 "latency_exec_ms": latency_exec,
+                "memory_latency_ms": mem_res.retrieval_ms,
+                "memory_recalled": bool(mem_res.prompt_context),
+                "is_followup": mem_res.is_followup,
                 "success": True,
             }
         except Exception as err:
@@ -612,16 +646,39 @@ class QwerySmithAgent:
             if auto_repair:
                 print(f"  ⚠️ Initial SQL failed: {err}")
                 print("  🔄 Engaging self-healing reflection engine...")
-                repaired_sql = self.generate_sql(schema, question, failed_sql=sql, error_feedback=str(err))
+                repaired_sql = self.generate_sql(
+                    schema,
+                    question,
+                    failed_sql=sql,
+                    error_feedback=str(err),
+                    memory_context=mem_res.prompt_context,
+                )
                 try:
                     conn = sqlite3.connect(str(db_path))
                     cur = conn.cursor()
                     cur.execute(repaired_sql)
                     columns = [desc[0] for desc in cur.description] if cur.description else []
                     rows = cur.fetchmany(100)
+                    latency_exec = 0.0
                     conn.close()
 
                     human_ans = self.synthesize_human_response(question, repaired_sql, columns, rows)
+
+                    # Commit healed experience to persistent memory (learning from error)
+                    self.memory.commit(
+                        session_id=session_id,
+                        db_name=db_name,
+                        question=question,
+                        sql=repaired_sql,
+                        columns=columns,
+                        rows=rows,
+                        human_summary=human_ans,
+                        success=True,
+                        repaired_from=sql,
+                        error_msg=str(err),
+                        latency_gen_ms=latency_gen,
+                        latency_exec_ms=latency_exec,
+                    )
 
                     return {
                         "question": question,
@@ -631,16 +688,30 @@ class QwerySmithAgent:
                         "rows": rows,
                         "human_answer": human_ans,
                         "latency_gen_ms": latency_gen,
-                        "latency_exec_ms": 0.0,
+                        "latency_exec_ms": latency_exec,
+                        "memory_latency_ms": mem_res.retrieval_ms,
+                        "memory_recalled": bool(mem_res.prompt_context),
+                        "is_followup": mem_res.is_followup,
                         "success": True,
                     }
                 except Exception as err2:
                     conn.close()
+                    # Commit failed attempt
+                    self.memory.commit(
+                        session_id=session_id,
+                        db_name=db_name,
+                        question=question,
+                        sql=repaired_sql,
+                        success=False,
+                        repaired_from=sql,
+                        error_msg=str(err2),
+                    )
                     return {
                         "question": question,
                         "sql": repaired_sql,
                         "attempted_original": sql,
                         "error": str(err2),
+                        "memory_latency_ms": mem_res.retrieval_ms,
                         "success": False,
                     }
             return {"question": question, "sql": sql, "error": str(err), "success": False}
@@ -649,7 +720,7 @@ class QwerySmithAgent:
     # 4. Interactive Live Chat Loop
     # ----------------------------------------------------------------------
     def interactive_chat(self, db_path: str | Path = "company_store.db"):
-        """Launches a full interactive command-line / Colab chat loop."""
+        """Launches a full interactive command-line / Colab chat loop with persistent memory."""
         db_file = init_sample_db(db_path)
         conn = sqlite3.connect(str(db_file))
         schema = self.get_schema(conn)
@@ -660,13 +731,15 @@ class QwerySmithAgent:
         tables = [r[0] for r in cur.fetchall()]
         conn.close()
 
+        session_id = f"session_{int(time.time())}"
+
         print("\n" + "=" * 72)
         print("💬 QWERYSMITH 1.1 INTERACTIVE DATABASE & CONVERSATIONAL AGENT")
         print("=" * 72)
         print(f"📁 Connected Database : {db_file.name}")
         print(f"📊 Available Tables   : {', '.join(tables)}")
         print(f"🤖 Loaded Model       : {self.model_path}")
-        print("💡 Special Commands   : :schema, :tables, :sample <table>, :db <path>, :exit")
+        print("💡 Special Commands   : :schema, :tables, :sample <table>, :memory, :clearmem, :db <path>, :exit")
         print("-" * 72)
         print("You can chat normally or ask live database queries:")
         print("  • 'Hey! How are you doing today?'")
@@ -691,6 +764,28 @@ class QwerySmithAgent:
             if user_input.lower() in [":exit", ":quit", "exit", "quit", ":q"]:
                 print("👋 Session ended. Happy querying!")
                 break
+
+            if user_input.lower() in [":memory", ":mem"]:
+                st = self.memory.stats()
+                print("\n🧠 PERSISTENT AGENTIC MEMORY STATUS:")
+                print("-" * 50)
+                print(f"  • Active Session ID       : {session_id}")
+                print(f"  • Total Recorded Turns    : {st['total_turns']}")
+                print(f"  • Unique Chat Sessions    : {st['total_sessions']}")
+                print(f"  • Verified Past Queries   : {st['total_verified_queries']}")
+                print(f"  • Self-Healed Experiences : {st['total_self_healed_patterns']}")
+                print(f"  • Storage Database Path   : {st['storage_file']}")
+                if st["queries_per_db"]:
+                    print("  • Verified Queries by DB  :")
+                    for db_k, cnt in st["queries_per_db"].items():
+                        print(f"    - {db_k}: {cnt} queries")
+                print("-" * 50 + "\n")
+                continue
+
+            if user_input.lower() in [":clearmem", ":clear_memory"]:
+                cleared = self.memory.clear_session(session_id)
+                print(f"🧹 Cleared {cleared} turns from active session memory.\n")
+                continue
 
             if user_input.lower() == ":schema":
                 conn = sqlite3.connect(str(db_file))
@@ -783,8 +878,15 @@ class QwerySmithAgent:
                 continue
 
             # Route 4: Real-time Database Query & Natural Language Synthesis
+            # Fast memory recall preview check
+            mem_preview = self.memory.recall(session_id, db_file.name, user_input)
+            if mem_preview.is_followup and mem_preview.previous_turn:
+                print(f"\n🧠 \033[1;36mMemory: Follow-up detected. Injected prior turn context ({mem_preview.retrieval_ms:.2f}ms)\033[0m")
+            elif mem_preview.exemplars:
+                print(f"\n🧠 \033[1;36mMemory: Recalled {len(mem_preview.exemplars)} verified schema exemplar(s) ({mem_preview.retrieval_ms:.2f}ms)\033[0m")
+
             print("\n⚡ Synthesizing SQL query...")
-            res = self.query(db_file, user_input)
+            res = self.query(db_file, user_input, session_id=session_id)
             last_interaction = res
 
             if res["success"]:
@@ -795,7 +897,7 @@ class QwerySmithAgent:
                 # Print structured data table
                 cols = res["columns"]
                 rows = res["rows"]
-                print(f"📊 Live Data ({len(rows)} rows, {res.get('latency_gen_ms', 0):.0f}ms gen):")
+                print(f"📊 Live Data ({len(rows)} rows, {res.get('latency_gen_ms', 0):.0f}ms gen, {res.get('memory_latency_ms', 0):.2f}ms mem):")
                 print(format_table(cols, rows))
 
                 # Print underlying SQL
@@ -815,9 +917,13 @@ class QwerySmithAgent:
 # --------------------------------------------------------------------------
 # 5. Top-Level Entry Points
 # --------------------------------------------------------------------------
-def chat_loop(model_path: str | None = None, db_path: str | Path = "company_store.db"):
+def chat_loop(
+    model_path: str | None = None,
+    db_path: str | Path = "company_store.db",
+    memory_path: str | Path | None = None,
+):
     """One-click Python entry point for Colab, Jupyter, or terminal."""
-    agent = QwerySmithAgent(model_path=model_path)
+    agent = QwerySmithAgent(model_path=model_path, memory_path=memory_path)
     agent.interactive_chat(db_path=db_path)
 
 
@@ -825,9 +931,10 @@ def main():
     parser = argparse.ArgumentParser(description="Live interactive chat agent for QwerySmith Text-to-SQL.")
     parser.add_argument("--model", default=None, help="Path to fine-tuned LoRA adapter or HuggingFace repo.")
     parser.add_argument("--db", default="company_store.db", help="Path to SQLite database.")
+    parser.add_argument("--memory", default=None, help="Path to SQLite persistent agentic memory file.")
     args = parser.parse_args()
 
-    chat_loop(model_path=args.model, db_path=args.db)
+    chat_loop(model_path=args.model, db_path=args.db, memory_path=args.memory)
 
 
 if __name__ == "__main__":
