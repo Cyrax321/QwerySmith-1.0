@@ -85,7 +85,7 @@ User Natural Query ---> [Schema Linker & Value Grounder] ---> [Dual-Mode QwerySm
 │   ├── Qwerysmith_V11.py       # v1.1 fine-tuning pipeline with multi-source mixing & ablation
 │   ├── data_sources.py         # Multi-dataset registry, split carver & leak-proof sampler
 │   └── QwerySmith.py           # v1.0 baseline training and evaluation pipeline
-├── harness/                    # Modular Agent Runtime Harness
+├── harness/                    # Neuro-Symbolic Agent Runtime Architecture
 │   ├── __init__.py             # Unified public exports (QwerySmithAgent, HarnessConfig, etc.)
 │   ├── __main__.py             # CLI runner entrypoint (python -m harness)
 │   ├── config.py               # Centralized configuration dataclass & JSON schema
