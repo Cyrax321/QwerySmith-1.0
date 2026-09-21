@@ -20,8 +20,14 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from .config import HarnessConfig
+from .conversation import DialogueStateTracker
+from .decoding import ExecutionGuidedSelector
 from .memory import AgentMemoryEngine, MemoryRetrievalResult
-from .self_healing import SelfHealingEngine
+from .reflection import ErrorDiagnosis, MultiStepRepairTracker, SelfHealingEngine
+from .schema import SchemaLinker, ValueGrounder
+from .security import execute_sandboxed_query
+from .telemetry import EventType, LatencyBreakdown, TelemetryDispatcher
 from .tools import (
     classify_intent,
     clean_sql,
@@ -42,7 +48,9 @@ class QwerySmithAgent:
     Features:
     - Dual-Mode Inference: QLoRA SQL synthesis mode vs native base model chat reasoning.
     - Sub-Millisecond Persistent Memory: B-Tree short-term turn storage + FTS5 BM25 verified query cache.
-    - Self-Healing Reflection Engine: Runtime AST & error diagnosis with auto-repair retry.
+    - Self-Healing Reflection Engine: Multi-step AST & error diagnosis with auto-repair retry.
+    - Schema Linking & Value Grounding: Graph-expanded schema pruning and literal matching.
+    - Sandboxed Execution: Strict read-only query execution with timeouts.
     - Real-Time Grounding: Dynamic system clock and schema catalog synchronization.
     """
 
@@ -63,12 +71,43 @@ class QwerySmithAgent:
         },
     }
 
-    def __init__(self, model_path: str | None = None, memory_path: str | Path | None = None):
-        """Initializes model, tokenizer, persistent memory, reflection engine, and fast inference."""
+    def __init__(
+        self,
+        model_path: str | None = None,
+        memory_path: str | Path | None = None,
+        config: Optional[HarnessConfig] = None,
+    ):
+        """Initializes model, tokenizer, persistent memory, reflection engine, schema linker, and fast inference."""
+        self.config = config or HarnessConfig()
+        if memory_path:
+            self.config.memory_path = memory_path
+
         self.model_path = self._resolve_model_path(model_path)
-        self.memory = AgentMemoryEngine(storage_path=memory_path)
+        self.memory = AgentMemoryEngine(storage_path=self.config.memory_path)
         self.healer = SelfHealingEngine()
+        self.state_tracker = DialogueStateTracker(max_context_turns=self.config.max_dialogue_turns_context)
+        self.selector = ExecutionGuidedSelector(timeout_sec=self.config.timeout_sec, max_rows=self.config.max_rows)
+        self.telemetry = TelemetryDispatcher(verbose=self.config.verbose_telemetry)
+        self._schema_linkers: Dict[str, SchemaLinker] = {}
+        self._value_grounders: Dict[str, ValueGrounder] = {}
         self._load_model()
+
+    def get_schema_linker(self, db_path: str | Path) -> SchemaLinker:
+        """Cached schema linker for a given database."""
+        key = str(Path(db_path).resolve())
+        if key not in self._schema_linkers:
+            self._schema_linkers[key] = SchemaLinker(db_path)
+        return self._schema_linkers[key]
+
+    def get_value_grounder(self, db_path: str | Path) -> ValueGrounder:
+        """Cached value grounder for a given database."""
+        key = str(Path(db_path).resolve())
+        if key not in self._value_grounders:
+            self._value_grounders[key] = ValueGrounder(
+                db_path,
+                max_distinct_per_col=self.config.max_distinct_values_per_col,
+            )
+        return self._value_grounders[key]
 
     def _resolve_model_path(self, requested: str | None) -> str:
         """Finds the most specific adapter or merged model path available."""
@@ -175,6 +214,9 @@ class QwerySmithAgent:
         failed_sql: Optional[str] = None,
         error_feedback: Optional[str] = None,
         memory_context: Optional[str] = None,
+        grounding_hints: Optional[str] = None,
+        dialogue_context: Optional[str] = None,
+        repair_prompt: Optional[str] = None,
     ) -> str:
         """Translates natural language question and database schema into pure SQL."""
         system_msg = (
@@ -187,12 +229,22 @@ class QwerySmithAgent:
             "3. Ensure all table and column names strictly match the schema."
         )
         user_content = f"Schema:\n{schema}\n\nQuestion: {question}"
+
+        if dialogue_context:
+            user_content = f"{dialogue_context}\n\n" + user_content
+
+        if grounding_hints:
+            user_content += f"\n\n{grounding_hints}"
+
         if memory_context:
             user_content += f"\n\n{memory_context}"
 
-        if error_feedback and failed_sql:
-            repair_prompt = self.healer.build_repair_prompt(question, failed_sql, error_feedback)
-            user_content += repair_prompt
+        if repair_prompt:
+            user_content += f"\n\n{repair_prompt}"
+        elif error_feedback and failed_sql:
+            diag = self.healer.diagnose_error(error_feedback, failed_sql)
+            built_repair = self.healer.build_repair_prompt(question, failed_sql, error_feedback, diagnosis=diag)
+            user_content += f"\n\n{built_repair}"
         elif error_feedback:
             user_content += f"\n\nPrevious attempt failed with error:\n{error_feedback}\nPlease repair the query."
 
@@ -297,119 +349,233 @@ class QwerySmithAgent:
         auto_repair: bool = True,
         session_id: str = "default_session",
     ) -> dict:
-        """End-to-end execution: NL Question -> Memory Recall -> SQL -> DB Sandbox -> Human Synthesis."""
+        """
+        End-to-end multi-stage pipeline:
+        1. Subgraph Schema Linking (Pruning irrelevant tables & finding FK paths)
+        2. Column Value Grounding (Literal indexing & case-normalizing)
+        3. Dialogue State Tracking (Anaphoric follow-up resolution & history)
+        4. Sub-Millisecond Persistent Memory Recall (<1ms)
+        5. Candidate Generation & Execution-Guided Selection
+        6. Multi-Step AST Self-Healing Reflection
+        7. Natural Language Data Synthesis & Telemetry
+        """
+        t_turn_start = time.perf_counter()
         db_name = Path(db_path).name
-        schema = get_schema(db_path)
+        latencies = LatencyBreakdown()
+
+        self.telemetry.dispatch(EventType.TURN_START, session_id, db_name, question=question)
+
+        # Step 1: Subgraph Schema Linking & Pruning
+        t_link = time.perf_counter()
+        if self.config.enable_schema_pruning:
+            linker = self.get_schema_linker(db_path)
+            pruned = linker.link(question, max_tables=self.config.schema_max_tables)
+            schema = pruned.pruned_ddl
+            available_cols = [c for t in pruned.selected_tables for c in linker.tables[t].columns]
+            available_tbls = pruned.selected_tables
+        else:
+            schema = get_schema(db_path)
+            available_cols = None
+            available_tbls = None
+        latencies.schema_linking_ms = (time.perf_counter() - t_link) * 1000
 
         if not schema:
             return {"error": "Database contains no tables.", "success": False}
 
-        # Ultra-fast memory recall (<1ms)
+        self.telemetry.dispatch(EventType.SCHEMA_LINKED, session_id, db_name, tables=available_tbls)
+
+        # Step 2: Value Grounding
+        t_val = time.perf_counter()
+        grounding_hints = ""
+        if self.config.enable_value_grounding:
+            grounder = self.get_value_grounder(db_path)
+            matches = grounder.ground(question)
+            grounding_hints = grounder.format_grounding_hints(matches)
+        latencies.value_grounding_ms = (time.perf_counter() - t_val) * 1000
+
+        if grounding_hints:
+            self.telemetry.dispatch(EventType.VALUE_GROUNDED, session_id, db_name, hints=grounding_hints)
+
+        # Step 3: Dialogue State Tracking Context
+        dst_context = ""
+        if self.config.enable_dst:
+            dst_context = self.state_tracker.build_context_prompt(session_id, question)
+
+        # Step 4: Persistent Memory Recall (<1ms)
+        t_mem = time.perf_counter()
         mem_res = self.memory.recall(session_id=session_id, db_name=db_name, question=question)
+        latencies.memory_recall_ms = (time.perf_counter() - t_mem) * 1000
 
-        t_start = time.perf_counter()
-        sql = self.generate_sql(schema, question, memory_context=mem_res.prompt_context)
-        latency_gen = (time.perf_counter() - t_start) * 1000
+        # Step 5: SQL Synthesis
+        t_gen = time.perf_counter()
+        sql = self.generate_sql(
+            schema=schema,
+            question=question,
+            memory_context=mem_res.prompt_context,
+            grounding_hints=grounding_hints,
+            dialogue_context=dst_context,
+        )
+        latencies.generation_ms = (time.perf_counter() - t_gen) * 1000
 
-        # Execute query tool call
-        exec_res = execute_query(db_path, sql)
+        self.telemetry.dispatch(EventType.SQL_GENERATED, session_id, db_name, sql=sql)
 
-        if exec_res["success"]:
-            human_ans = self.synthesize_human_response(question, sql, exec_res["columns"], exec_res["rows"])
+        # Step 6: Sandboxed Execution & Selection
+        t_exec = time.perf_counter()
+        sel_res = self.selector.select(
+            conn_or_path=db_path,
+            candidates=[sql],
+            read_only=self.config.read_only,
+        )
+        latencies.execution_ms = (time.perf_counter() - t_exec) * 1000
+
+        # Step 7: Multi-Step AST Self-Healing Reflection
+        repaired_from = None
+        was_repaired = False
+        if not sel_res.success and auto_repair:
+            t_rep = time.perf_counter()
+            tracker = self.healer.start_repair_session(session_id, db_name, question, sql)
+            curr_sql = sql
+            curr_err = sel_res.error or "Unknown error"
+            repaired_from = sql
+
+            for attempt in range(1, self.config.max_repair_attempts + 1):
+                print(f"  [Warning] Attempt {attempt} failed: {curr_err}")
+                print(f"  [Reflect] Engaging self-healing reflection (Attempt {attempt}/{self.config.max_repair_attempts})...")
+
+                diag = self.healer.diagnose_error(
+                    curr_err,
+                    curr_sql,
+                    available_columns=available_cols,
+                    available_tables=available_tbls,
+                )
+                self.healer.record_attempt(tracker, curr_sql, str(curr_err), diag)
+
+                repair_prompt = self.healer.build_repair_prompt(
+                    question,
+                    curr_sql,
+                    str(curr_err),
+                    diagnosis=diag,
+                    attempt=attempt,
+                    max_attempts=self.config.max_repair_attempts,
+                    history=tracker.attempts,
+                )
+
+                self.telemetry.dispatch(
+                    EventType.REPAIR_ATTEMPTED,
+                    session_id,
+                    db_name,
+                    attempt=attempt,
+                    diagnosis=diag.error_type,
+                    fix=diag.suggested_fix,
+                )
+
+                rep_sql = self.generate_sql(
+                    schema=schema,
+                    question=question,
+                    failed_sql=curr_sql,
+                    error_feedback=str(curr_err),
+                    memory_context=mem_res.prompt_context,
+                    grounding_hints=grounding_hints,
+                    dialogue_context=dst_context,
+                    repair_prompt=repair_prompt,
+                )
+
+                rep_sel = self.selector.select(
+                    conn_or_path=db_path,
+                    candidates=[rep_sql],
+                    read_only=self.config.read_only,
+                )
+
+                if rep_sel.success:
+                    self.healer.finalize_repair(tracker, rep_sql, success=True)
+                    sql = rep_sql
+                    sel_res = rep_sel
+                    was_repaired = True
+                    break
+                else:
+                    curr_sql = rep_sql
+                    curr_err = rep_sel.error or "Unknown error"
+
+            if not sel_res.success:
+                self.healer.finalize_repair(tracker, curr_sql, success=False)
+                sql = curr_sql
+
+            latencies.repair_ms = (time.perf_counter() - t_rep) * 1000
+
+        latencies.total_turn_ms = (time.perf_counter() - t_turn_start) * 1000
+
+        # Step 8: Natural Language Synthesis & Commit
+        if sel_res.success:
+            human_ans = self.synthesize_human_response(question, sql, sel_res.columns, sel_res.rows)
+
+            # Record in Dialogue State Tracker
+            if self.config.enable_dst:
+                self.state_tracker.record_turn(
+                    session_id=session_id,
+                    db_name=db_name,
+                    question=question,
+                    sql=sql,
+                    columns=sel_res.columns,
+                    rows=sel_res.rows,
+                    human_summary=human_ans,
+                )
+
+            # Commit to Persistent Agent Memory
             self.memory.commit(
                 session_id=session_id,
                 db_name=db_name,
                 question=question,
                 sql=sql,
-                columns=exec_res["columns"],
-                rows=exec_res["rows"],
+                columns=sel_res.columns,
+                rows=sel_res.rows,
                 human_summary=human_ans,
                 success=True,
-                latency_gen_ms=latency_gen,
-                latency_exec_ms=exec_res["latency_exec_ms"],
+                repaired_from=repaired_from if was_repaired else None,
+                latency_gen_ms=latencies.generation_ms,
+                latency_exec_ms=sel_res.latency_exec_ms,
             )
+
+            self.telemetry.dispatch(EventType.TURN_END, session_id, db_name, success=True, sql=sql)
+
             return {
                 "question": question,
                 "sql": sql,
-                "columns": exec_res["columns"],
-                "rows": exec_res["rows"],
+                "repaired_from": repaired_from if was_repaired else None,
+                "was_repaired": was_repaired,
+                "columns": sel_res.columns,
+                "rows": sel_res.rows,
                 "human_answer": human_ans,
-                "latency_gen_ms": latency_gen,
-                "latency_exec_ms": exec_res["latency_exec_ms"],
+                "latency_gen_ms": latencies.generation_ms,
+                "latency_exec_ms": sel_res.latency_exec_ms,
+                "latency_breakdown": latencies.to_dict(),
                 "memory_latency_ms": mem_res.retrieval_ms,
                 "memory_recalled": bool(mem_res.prompt_context),
                 "is_followup": mem_res.is_followup,
                 "success": True,
             }
-
-        # Failure / Auto-repair path
-        err = exec_res["error"]
-        if auto_repair:
-            print(f"  [Warning] Initial SQL failed: {err}")
-            print("  [Reflect] Engaging self-healing reflection engine...")
-            repaired_sql = self.generate_sql(
-                schema,
-                question,
-                failed_sql=sql,
-                error_feedback=str(err),
-                memory_context=mem_res.prompt_context,
-            )
-
-            repair_exec = execute_query(db_path, repaired_sql)
-            if repair_exec["success"]:
-                human_ans = self.synthesize_human_response(
-                    question, repaired_sql, repair_exec["columns"], repair_exec["rows"]
-                )
-                self.healer.record_repair(session_id, db_name, question, sql, repaired_sql, str(err), success=True)
+        else:
+            if was_repaired:
                 self.memory.commit(
                     session_id=session_id,
                     db_name=db_name,
                     question=question,
-                    sql=repaired_sql,
-                    columns=repair_exec["columns"],
-                    rows=repair_exec["rows"],
-                    human_summary=human_ans,
-                    success=True,
-                    repaired_from=sql,
-                    error_msg=str(err),
-                    latency_gen_ms=latency_gen,
-                    latency_exec_ms=repair_exec["latency_exec_ms"],
-                )
-                return {
-                    "question": question,
-                    "sql": repaired_sql,
-                    "repaired_from": sql,
-                    "columns": repair_exec["columns"],
-                    "rows": repair_exec["rows"],
-                    "human_answer": human_ans,
-                    "latency_gen_ms": latency_gen,
-                    "latency_exec_ms": repair_exec["latency_exec_ms"],
-                    "memory_latency_ms": mem_res.retrieval_ms,
-                    "memory_recalled": bool(mem_res.prompt_context),
-                    "is_followup": mem_res.is_followup,
-                    "success": True,
-                }
-            else:
-                self.healer.record_repair(session_id, db_name, question, sql, repaired_sql, str(repair_exec["error"]), success=False)
-                self.memory.commit(
-                    session_id=session_id,
-                    db_name=db_name,
-                    question=question,
-                    sql=repaired_sql,
+                    sql=sql,
                     success=False,
-                    repaired_from=sql,
-                    error_msg=str(repair_exec["error"]),
+                    repaired_from=repaired_from,
+                    error_msg=sel_res.error,
                 )
-                return {
-                    "question": question,
-                    "sql": repaired_sql,
-                    "attempted_original": sql,
-                    "error": str(repair_exec["error"]),
-                    "memory_latency_ms": mem_res.retrieval_ms,
-                    "success": False,
-                }
 
-        return {"question": question, "sql": sql, "error": str(err), "success": False}
+            self.telemetry.dispatch(EventType.TURN_END, session_id, db_name, success=False, error=sel_res.error)
+
+            return {
+                "question": question,
+                "sql": sql,
+                "attempted_original": repaired_from,
+                "error": sel_res.error,
+                "latency_breakdown": latencies.to_dict(),
+                "memory_latency_ms": mem_res.retrieval_ms,
+                "success": False,
+            }
 
     def interactive_chat(self, db_path: str | Path = "company_store.db"):
         """Launches an interactive live chat loop with memory, tools, and reflection."""
