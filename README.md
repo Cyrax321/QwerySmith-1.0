@@ -313,6 +313,15 @@ In a comprehensive live test against a multi-table SQLite enterprise database (`
 | 10 | *"How much revenue has each product category generated?"* | Multi-Table Group By | `SELECT p.category, SUM(oi.quantity * oi.unit_price) as total_revenue FROM products p JOIN order_items oi ON p.id = oi.product_id GROUP BY p.category;` | 0.3 ms | ✅ **PASS** (Electronics: $6,197, Furniture: $750, Accessories: $198) |
 | 11 | *"Are there any customers who haven't placed an order yet?"* | Negative Left Join (NULL Check) | `SELECT c.name FROM customers c LEFT JOIN orders o ON c.id = o.customer_id WHERE o.id IS NULL;` | 0.6 ms | ✅ **PASS** (Elena Rostova) |
 
+
+### 🛡️ Production Security & Sandbox Architecture
+
+QwerySmith implements a zero-trust, defense-in-depth isolation boundary ensuring safe SQL evaluation:
+
+1. **Connection-Level Immutability**: All SQLite connections enforce `file:{path}?mode=ro` with URI syntax, strictly preventing filesystem writes at the operating system C-library level.
+2. **AST Mutation Keyword Prevention**: The SQL validation engine intercepts and aborts any statement containing `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `CREATE`, `VACUUM`, `ATTACH`, or mutating `PRAGMA` directives prior to database dispatch.
+3. **Cartesian Lock Interruption**: A native SQLite opcode progress handler callback interrupts any query execution exceeding the configured timeout (default `3.0s`), guarding against accidental runaway cartesian products.
+
 ### 🚀 Running the Live Interactive Chat Loop
 
 #### In Google Colab or Jupyter Notebook:
