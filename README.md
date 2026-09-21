@@ -527,7 +527,8 @@ print("Consensus Ratio:", result.consensus_ratio)
 
 The `SelfHealingEngine` intercepts database runtime errors and guides multi-step iterative recovery:
 
-- **Misspelled Column/Table Diagnosis**: Matches invalid identifiers against the extracted schema graph using Levenshtein distance similarity.
+- **Structural Taxonomy**: Categorizes runtime SQLite exceptions into `NO_SUCH_COLUMN`, `NO_SUCH_TABLE`, and syntax failures.
+- **Identifier Diagnosis**: Matches unrecognized schema identifiers against the extracted schema graph using Levenshtein distance similarity.
 - **Empty Result Set Anomalies**: Detects when a query executes syntactically but returns zero rows due to over-constrained equality filters, suggesting case-insensitive `LIKE` or relaxed clauses.
 - **Retry Budget Exhaustion**: Bounded by `max_repair_attempts` to guarantee bounded latency SLAs.
 
