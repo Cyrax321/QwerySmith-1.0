@@ -352,7 +352,7 @@ QwerySmith 1.1 includes a production autonomous agent designed as a **dual-mode 
 
 ### 🧪 Live End-to-End Experiment Benchmark (Tesla T4 Audit)
 
-In a comprehensive live test against a multi-table SQLite enterprise database (`company_store.db` with `customers`, `products`, `orders`, and `order_items`), QwerySmith 1.1 achieved a **100% success rate (11/11 tasks passed)** across all operational modes:
+In a zero-shot empirical audit against a 4-table relational SQLite enterprise schema (`company_store.db` with `customers`, `products`, `orders`, and `order_items`), QwerySmith 1.1 achieved a **100% success rate (11/11 tasks passed)** across all operational modes:
 
 | # | User Input / Intent | Model Output Type | Executed SQL Query / Action | DB Exec Latency | Verification Status |
 |:---|:---|:---|:---|:---:|:---:|
