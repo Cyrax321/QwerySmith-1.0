@@ -253,3 +253,8 @@ class SelfHealingEngine:
             "repair_success_rate": (succeeded / total) if total > 0 else 1.0,
             "avg_attempts_per_repair": (total_attempts / total) if total > 0 else 0.0,
         }
+
+    @staticmethod
+    def is_budget_exhausted(attempt_count: int, max_retries: int) -> bool:
+        """Evaluates whether the reflection repair budget has been reached."""
+        return attempt_count >= max_retries
