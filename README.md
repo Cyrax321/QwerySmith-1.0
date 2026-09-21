@@ -430,7 +430,7 @@ items = [
 
 # Run evaluation against agent prediction pipeline
 summary = evaluator.evaluate(items, agent.query)
-print(f"Execution Accuracy: {summary.execution_accuracy * 100:.1f}%")
+print(f"Execution Accuracy:   {summary.execution_accuracy * 100:.1f}%")
 print(f"Valid SQL Rate:     {summary.valid_sql_rate * 100:.1f}%")
 
 # Export execution results to CSV with per-sample status
