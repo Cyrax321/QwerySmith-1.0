@@ -82,6 +82,20 @@
 
 ---
 
+## 🚀 Key Capabilities
+
+| Capability | Technical Mechanism | Production Benefit |
+|:---|:---|:---|
+| **Sub-Millisecond Execution** | In-process SQLite WAL mode with compiled C-level bindings | 0.3ms to 0.6ms response latency without cloud hops |
+| **Triple-Layer Security** | URI `mode=ro`, AST mutation parser, progress handler timeouts | Zero risk of SQL injection, table drops, or cartesian locks |
+| **Self-Healing AST Reflection** | Real-time diagnostic parser with Levenshtein typo repair | Automatically recovers from misspelled columns and syntax faults |
+| **Anaphoric Dialogue Tracking** | Pronoun detection and automated prior-turn entity injection | Seamless multi-turn analytical drill-downs across tables |
+| **Dual-Engine Execution** | Unified abstract adapters for SQLite and DuckDB | Scales effortlessly from embedded OLTP to analytical OLAP |
+| **Execution Consensus Voting** | Result-set equivalence hashing and query complexity scoring | Discards erroneous candidate SQL across sampling beams |
+
+
+---
+
 <a id="model-family"></a>
 ## 🏛️ Model Family & Evolution: v1.0 vs v1.1
 
