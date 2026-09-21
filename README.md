@@ -47,6 +47,11 @@ QwerySmith is engineered around three interconnected architectural pillars desig
 - **AST Safety Verifier**: Rejects DDL and mutating DML statements (`DROP`, `ALTER`, `INSERT`, `UPDATE`, `DELETE`) before database execution.
 - **Cartesian Interrupter**: Native opcode progress handler callback enforcing strict execution timeouts (default 3.0s).
 
+### Pillar III: Execution Consistency Consensus & AST Reflection
+- **Consensus Quorum Voting**: Evaluates speculative candidates in parallel sandboxes and clusters hypotheses by normalized result-set hash.
+- **Syntactic Complexity Tie-Breaker**: Selects the candidate with lowest AST structural complexity among equivalent result sets.
+- **Levenshtein Error Reflection**: Diagnoses runtime SQL exceptions and repairs misspelled column and table identifiers in real time.
+
 ## 📂 Repository Layout
 
 ```text
