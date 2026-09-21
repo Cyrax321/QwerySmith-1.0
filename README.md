@@ -341,6 +341,29 @@ res_duck = duck_db.execute_query("SELECT AVG(total_amount) FROM orders;")
 print("Average Order Total:", res_duck["rows"][0][0])
 ```
 
+
+### 📊 Automated Benchmarking & CSV Export Recipe
+
+Run standard Spider/BIRD evaluations against the agent pipeline and export per-sample execution reports:
+
+```python
+from harness.benchmark import BenchmarkEvaluator, BenchmarkItem
+
+evaluator = BenchmarkEvaluator(timeout_sec=3.0)
+items = [
+    BenchmarkItem("q1", "Total sales in 2024?", "SELECT SUM(total_amount) FROM orders WHERE order_date >= '2024-01-01';", "company_store.db"),
+    BenchmarkItem("q2", "List all Platinum customers", "SELECT name FROM customers WHERE loyalty_tier = 'Platinum';", "company_store.db"),
+]
+
+# Run evaluation against agent prediction pipeline
+summary = evaluator.evaluate(items, agent.query)
+print(f"Execution Accuracy: {summary.execution_accuracy * 100:.1f}%")
+print(f"Valid SQL Rate:     {summary.valid_sql_rate * 100:.1f}%")
+
+# Export complete report to CSV for offline analysis
+summary.to_csv("benchmark_results.csv")
+```
+
 ### 🚀 Running the Live Interactive Chat Loop
 
 #### In Google Colab or Jupyter Notebook:
