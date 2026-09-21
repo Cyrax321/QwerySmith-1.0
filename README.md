@@ -407,7 +407,7 @@ sqlite_db = SQLiteAdapter("company_store.db", timeout_sec=2.0)
 res_sqlite = sqlite_db.execute_query("SELECT COUNT(*) FROM orders;")
 print("Total Orders:", res_sqlite["rows"][0][0])
 
-# 2. DuckDB execution for analytical acceleration
+# 2. DuckDB columnar analytical engine for zero-copy aggregation
 duck_db = DuckDBAdapter("company_store.db")
 res_duck = duck_db.execute_query("SELECT AVG(total_amount) FROM orders;")
 print("Average Order Total:", res_duck["rows"][0][0])
