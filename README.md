@@ -166,6 +166,25 @@ All models are published in three optimized formats to support production, edge,
 
 ## 💻 Quickstart & Inference
 
+### 0. Quick Installation from Source
+
+```bash
+# Clone the repository
+git clone https://github.com/Cyrax321/QwerySmith-1.0.git
+cd QwerySmith-1.0
+
+# Create and activate virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies and runtime harness
+pip install -r requirements.txt
+pip install -e .
+
+# Run test suite to verify installation
+python -m pytest tests/
+```
+
 ### 1. Fast 4-bit Inference with Unsloth (v1.1 or v1.0)
 
 ```python
