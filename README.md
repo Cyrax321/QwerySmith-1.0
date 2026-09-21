@@ -333,6 +333,15 @@ python -m harness --model Cyrax321/QwerySmith-1.1 --db company_store.db
 - **Dual-Mode Adapter Control**: Automatically disables the LoRA adapter for conversational dialogue and re-enables it for SQL generation, eliminating prompt contamination and output collapse.
 - **Natural Language Data Synthesis**: Automatically digests raw query result sets and constructs business analyst executive summaries with clear takeaways and key metrics.
 - **Sub-Millisecond Query Execution**: Database queries execute in **0.3ms to 0.6ms** on SQLite.
+
+### Execution-Guided Candidate Consensus Voting
+
+When multiple candidate SQL hypotheses are generated (e.g. via temperature sampling or diverse beams), QwerySmith evaluates each candidate in an isolated sandbox and clusters them by their **semantic result set hash**:
+
+1. **Semantic Result Set Normalization**: Rows and columns are normalized to eliminate superficial differences in alias naming or ordering.
+2. **Consensus Majority Election**: The SQL candidate belonging to the largest semantic equivalence cluster is selected.
+3. **Complexity Scorer Tie-Breaking (`query_complexity`)**: If multiple candidates yield identical valid results, the engine selects the candidate with lower structural syntactic complexity (fewer redundant joins and subqueries).
+
 - **AST Self-Healing Reflection**: Catches SQL execution tracebacks (e.g., column misspellings or syntax faults) and self-heals in real time.
 - **Real-Time Temporal Grounding**: Accurately answers date-dependent and relative-time queries without hallucinating historical dates.
 - **Ultra-Fast Persistent Agentic Memory (`harness/memory.py`)**: Built with SQLite WAL mode, B-Tree session indexing, and FTS5 BM25 search (<1ms retrieval latency). Resolves conversational follow-ups and accumulates verified/healed SQL patterns across sessions.
