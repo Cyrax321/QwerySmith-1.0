@@ -156,6 +156,10 @@ QwerySmith is developed across two complementary releases:
 <a id="benchmarks"></a>
 ## 📊 Comprehensive Benchmark Results
 
+
+- **Loss Formulation**: Cross-entropy over target SQL tokens with label smoothing ($0.05$) and gradient clipping (max norm = 1.0).
+- **Scheduler**: Cosine learning rate decay with 10% linear warmup.
+
 All evaluations use in-memory SQLite instances pre-populated with synthetic or gold `INSERT` rows to measure **execution correctness** (returning identical row sets) rather than mere superficial string matching. All statistical intervals represent two-tailed 95% Wilson score and bootstrap confidence intervals ($p < 0.05$).
 
 ### 1. The Head-to-Head Progression: Base Model vs v1.0 vs v1.1
