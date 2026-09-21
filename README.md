@@ -259,6 +259,24 @@ python QwerySmith/Qwerysmith_V11.py --stage all --out runs/qwerysmith-1.1 \
 
 ---
 
+
+
+---
+
+## 🏛️ Modular Harness Subsystems
+
+The QwerySmith runtime harness is engineered as 7 modular, decoupled subsystems:
+
+| Subsystem | Primary Module | Key Classes / Functions | Verification Test |
+|:---|:---|:---|:---|
+| **Security Sandbox** | `harness.security` | `execute_sandboxed_query`, `validate_ast_safety` | `tests/test_sandbox.py` |
+| **Schema Linker** | `harness.schema` | `SchemaLinker`, `ValueGrounder`, `ForeignKeyGraph` | `tests/test_schema_and_grounding.py` |
+| **Decoding & Consensus** | `harness.decoding` | `CandidateSelector`, `query_complexity` | `tests/test_candidate_selection.py` |
+| **Dialogue State** | `harness.conversation` | `DialogueStateTracker`, `TurnContext` | `tests/test_dialogue_state.py` |
+| **Self-Healing Reflection** | `harness.reflection` | `SelfHealingEngine`, `ErrorDiagnosis` | `tests/test_reflection_budget.py` |
+| **Database Adapters** | `harness.adapters` | `SQLiteAdapter`, `DuckDBAdapter` | `tests/test_adapters.py` |
+| **Benchmark Evaluator** | `harness.benchmark` | `BenchmarkEvaluator`, `BenchmarkSummary` | `tests/test_benchmark_evaluator.py` |
+
 ## 🤖 Autonomous Conversational Agent & Real-World Live Experiment (`harness/agent.py`)
 
 QwerySmith 1.1 includes a production autonomous agent designed as a **dual-mode conversational database assistant**:
