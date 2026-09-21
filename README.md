@@ -539,7 +539,7 @@ The `SelfHealingEngine` intercepts database runtime errors and guides multi-step
 
 QwerySmith incorporates a standalone, decoupled agentic memory engine designed for both **interactive multi-turn conversations** and **evaluation harnesses**:
 
-- **Sub-Millisecond Retrieval (<1ms)**: Engineered as a zero-dependency in-process cognitive state bus using SQLite WAL mode with dual compound B-Tree indexing on session turns (`O(log N)` index retrieval in ~28µs) and compiled FTS5 BM25 search in ~0.38ms. No cloud vector database or network latency.
+- **Sub-Millisecond Retrieval (<1ms)**: Engineered as a zero-dependency in-process cognitive state bus using SQLite WAL mode with dual compound B-Tree indexing on session turns (`O(log N)` index retrieval in ~28µs) and compiled SQLite FTS5 BM25 full-text indexing in ~0.38ms without external vector stores. No cloud vector database or network latency.
 - **Anaphoric Follow-Up Resolution**: Automatically intercepts follow-up questions referencing previous entities or pronouns (*"they"*, *"those"*, *"that"*, *"these"*, *"it"*, *"their"*, *"and how much"*), injecting prior turn entities, queries, and sample values into the model prompt.
 - **Self-Healing Persistent Memory**: Remembers queries that underwent self-healing reflection, caching the repaired SQL into `qwerysmith_memory.sqlite` so the agent improves over time and never repeats the same syntax mistake.
 - **Harness & Benchmark Interface**: Exposes clean programmatic methods (`recall()`, `commit()`, `export_dataset()`, `import_dataset()`, `benchmark_latency()`) for few-shot benchmark evaluation (e.g. SParC, CoSQL, Spider).
