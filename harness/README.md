@@ -112,3 +112,37 @@ items = [
 summary = evaluator.evaluate(items, agent.query)
 print("Execution Accuracy:", summary.execution_accuracy)
 ```
+
+---
+
+## 3. Interactive Cookbook Recipes
+
+### Multi-Turn Dialogue Tracking
+```python
+from harness.conversation import DialogueStateTracker
+
+tracker = DialogueStateTracker()
+# Turn 1
+tracker.record_turn(
+    session_id="user_123",
+    db_name="company_store.db",
+    question="Which customers are in California?",
+    sql="SELECT * FROM customers WHERE state = 'CA';",
+    columns=["id", "name", "state"],
+    rows=[(1, "Alice", "CA")],
+)
+# Context injection for follow-up questions
+prompt_ctx = tracker.build_context_prompt("user_123", "And who among them spent over $500?")
+```
+
+### Analytical Acceleration with DuckDB
+```python
+from harness.adapters import DuckDBAdapter
+
+adapter = DuckDBAdapter("chinook.db")
+result = adapter.execute_query("SELECT AVG(total) FROM invoices;")
+print("Average Invoice:", result["rows"][0][0])
+```
+
+### Production Security Hardening
+All executions default to `mode=ro` with SQLite progress handler interrupts guarding against runaway cartesian products.
