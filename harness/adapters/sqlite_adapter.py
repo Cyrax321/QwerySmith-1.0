@@ -1,10 +1,10 @@
-from contextlib import contextmanager
 #!/usr/bin/env python3
 """
 harness/adapters/sqlite_adapter.py -- SQLite Database Driver with Sandboxing
 """
 
 from __future__ import annotations
+from contextlib import contextmanager
 
 import sqlite3
 from pathlib import Path
