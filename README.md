@@ -299,7 +299,7 @@ Training and inference resource footprint measured on standard cloud hardware:
 |:---|:---|:---|:---|:---|
 | **Training (QLoRA)** | 1x Tesla T4 (16GB) | 4-bit Base + 16-bit LoRA | 4.5 GB GPU / 4.1 GB RAM | 2.44 samples/sec (~68 min / epoch) |
 | **Inference (Unsloth)** | 1x Tesla T4 (16GB) | 4-bit BitsAndBytes | ~3.1 GB GPU | ~45 tokens/sec |
-| **Edge / Local (GGUF)** | CPU (Apple M-Series / x86) | Q4_K_M Quantized | ~2.6 GB System RAM | ~35 tokens/sec |
+| **Edge / Local (GGUF)** | Apple M-Series (Metal) / x86 | Q4_K_M Quantized | ~2.6 GB System RAM | ~38 tokens/sec |
 
 ## 🛠️ Training Both Versions (Google Colab / Linux GPU)
 
