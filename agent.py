@@ -6,9 +6,25 @@ Connects your fine-tuned QwerySmith (1.0 or 1.1) model to any SQLite database,
 translates English queries into SQL in a live chat loop, executes them,
 and renders tabular results with execution timings and automatic error healing.
 
+Research Paper:
+    https://drive.google.com/file/d/1sN1eVn7LpOi6cLEI1euxOT2cByBoXLlg/view?usp=sharing
+
+Codebase:
+    https://github.com/Cyrax321/QwerySmith-1.0
+
+Model Links:
+    QwerySmith 1.1 (Recommended):
+        • LoRA Adapter: https://huggingface.co/Cyrax321/QwerySmith-1.1/tree/main
+        • Merged Model: https://huggingface.co/Cyrax321/QwerySmith-1.1-Merged
+        • GGUF Quantized Model: https://huggingface.co/Cyrax321/QwerySmith-1.1-GGUF/tree/main
+    QwerySmith 1.0 (Baseline):
+        • LoRA Adapter: https://huggingface.co/Cyrax321/QwerySmith-1.0
+        • Merged Model: https://huggingface.co/Cyrax321/QwerySmith-1.0-Merged
+        • GGUF Quantized Model: https://huggingface.co/Cyrax321/QwerySmith-1.0-GGUF
+
 Usage:
     python agent.py
-    python agent.py --model /content/drive/MyDrive/qwerysmith-1.1/adapter --db custom.db
+    python agent.py --model Cyrax321/QwerySmith-1.1 --db custom.db
     
 In Google Colab:
     import agent
@@ -290,6 +306,44 @@ def classify_intent(text: str, table_names: list[str] | None = None) -> str:
 # 3. Autonomous QwerySmith Agent
 # --------------------------------------------------------------------------
 class QwerySmithAgent:
+    """
+    Autonomous Text-to-SQL Agent powered by the QwerySmith model family.
+
+    Research Paper:
+        https://drive.google.com/file/d/1sN1eVn7LpOi6cLEI1euxOT2cByBoXLlg/view?usp=sharing
+
+    Official Model Links:
+        *QwerySmith 1.1* (Recommended):
+        • LoRA Adapter: https://huggingface.co/Cyrax321/QwerySmith-1.1/tree/main
+        • Merged Model: https://huggingface.co/Cyrax321/QwerySmith-1.1-Merged
+        • GGUF Quantized Model: https://huggingface.co/Cyrax321/QwerySmith-1.1-GGUF/tree/main
+
+        *QwerySmith 1.0* (Baseline):
+        • LoRA Adapter: https://huggingface.co/Cyrax321/QwerySmith-1.0
+        • Merged Model: https://huggingface.co/Cyrax321/QwerySmith-1.0-Merged
+        • GGUF Quantized Model: https://huggingface.co/Cyrax321/QwerySmith-1.0-GGUF
+
+    Codebase:
+        https://github.com/Cyrax321/QwerySmith-1.0
+    """
+
+    PAPER_URL = "https://drive.google.com/file/d/1sN1eVn7LpOi6cLEI1euxOT2cByBoXLlg/view?usp=sharing"
+    CODEBASE_URL = "https://github.com/Cyrax321/QwerySmith-1.0"
+    MODELS = {
+        "1.1": {
+            "lora": "https://huggingface.co/Cyrax321/QwerySmith-1.1/tree/main",
+            "merged": "https://huggingface.co/Cyrax321/QwerySmith-1.1-Merged",
+            "gguf": "https://huggingface.co/Cyrax321/QwerySmith-1.1-GGUF/tree/main",
+            "hf_id": "Cyrax321/QwerySmith-1.1",
+        },
+        "1.0": {
+            "lora": "https://huggingface.co/Cyrax321/QwerySmith-1.0",
+            "merged": "https://huggingface.co/Cyrax321/QwerySmith-1.0-Merged",
+            "gguf": "https://huggingface.co/Cyrax321/QwerySmith-1.0-GGUF",
+            "hf_id": "Cyrax321/QwerySmith-1.0",
+        },
+    }
+
     def __init__(self, model_path: str | None = None):
         """Initializes model, tokenizer, and fast inference pipeline."""
         self.model_path = self._resolve_model_path(model_path)
@@ -308,6 +362,8 @@ class QwerySmithAgent:
             "runs/qwerysmith-1.0/adapter",
             "Cyrax321/QwerySmith-1.1",
             "Cyrax321/QwerySmith-1.1-Merged",
+            "Cyrax321/QwerySmith-1.0",
+            "Cyrax321/QwerySmith-1.0-Merged",
         ]
         for c in candidates:
             if Path(c).exists() and (Path(c) / "adapter_config.json").exists():

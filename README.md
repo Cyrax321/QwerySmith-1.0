@@ -1,12 +1,13 @@
 # QwerySmith: Production Text-to-SQL Model Family
 
+[![Research Paper](https://img.shields.io/badge/Research%20Paper-PDF-red.svg)](https://drive.google.com/file/d/1sN1eVn7LpOi6cLEI1euxOT2cByBoXLlg/view?usp=sharing)
 [![Hugging Face Models](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-QwerySmith--1.1-blue)](https://huggingface.co/Cyrax321/QwerySmith-1.1)
 [![Hugging Face Models](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-QwerySmith--1.0-blue)](https://huggingface.co/Cyrax321/QwerySmith-1.0)
 [![Model Quantization](https://img.shields.io/badge/Format-GGUF%20%7C%20Merged%2016bit-green)](https://huggingface.co/Cyrax321/QwerySmith-1.0-GGUF)
 [![Framework](https://img.shields.io/badge/Fine--Tuning-Unsloth%20%2B%20TRL-orange)](https://github.com/unslothai/unsloth)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**QwerySmith** is an open-source Text-to-SQL research and production ecosystem built on **Qwen3-4B** using **QLoRA** via [Unsloth](https://github.com/unslothai/unsloth) and [TRL](https://github.com/huggingface/trl). It encompasses the full lifecycle of specialized language modeling: multi-source curriculum fine-tuning, catastrophic forgetting diagnosis, leak-proof held-out evaluation, and an interactive self-healing database agent with execution verification.
+**QwerySmith** is an open-source Text-to-SQL research and production ecosystem built on **Qwen3-4B** using **QLoRA** via [Unsloth](https://github.com/unslothai/unsloth) and [TRL](https://github.com/huggingface/trl). Read our paper: [QwerySmith: Multi-Source Curriculum Fine-Tuning and Robust Evaluation for Text-to-SQL (PDF)](https://drive.google.com/file/d/1sN1eVn7LpOi6cLEI1euxOT2cByBoXLlg/view?usp=sharing). It encompasses the full lifecycle of specialized language modeling: multi-source curriculum fine-tuning, catastrophic forgetting diagnosis, leak-proof held-out evaluation, and an interactive self-healing database agent with execution verification.
 
 ---
 
@@ -81,9 +82,9 @@ All models are published in three optimized formats to support production, edge,
 ### QwerySmith 1.1 (Recommended)
 | Format | Repository | Size | Ideal Use Case |
 |---|---|---|---|
-| **LoRA Adapter** | [`Cyrax321/QwerySmith-1.1`](https://huggingface.co/Cyrax321/QwerySmith-1.1) | ~132 MB | Fast fine-tuning & inference via Unsloth / PEFT |
+| **LoRA Adapter** | [`Cyrax321/QwerySmith-1.1`](https://huggingface.co/Cyrax321/QwerySmith-1.1/tree/main) | ~132 MB | Fast fine-tuning & inference via Unsloth / PEFT |
 | **Merged 16-Bit** | [`Cyrax321/QwerySmith-1.1-Merged`](https://huggingface.co/Cyrax321/QwerySmith-1.1-Merged) | ~8.06 GB | Standalone deployment via vLLM, TGI, or Hugging Face Pipelines |
-| **Quantized GGUF** | [`Cyrax321/QwerySmith-1.1-GGUF`](https://huggingface.co/Cyrax321/QwerySmith-1.1-GGUF) | ~2.5 GB | Ultra-fast local execution with Ollama or `llama.cpp` |
+| **Quantized GGUF** | [`Cyrax321/QwerySmith-1.1-GGUF`](https://huggingface.co/Cyrax321/QwerySmith-1.1-GGUF/tree/main) | ~2.5 GB | Ultra-fast local execution with Ollama or `llama.cpp` |
 
 ### QwerySmith 1.0 (Baseline)
 | Format | Repository | Size | Ideal Use Case |
@@ -267,7 +268,10 @@ python qwerysmith_eval.py --stage all --out runs/v11-C
 
 ---
 
-## 📖 Citation
+## 📖 Citation & Paper
+ 
+- **Research Paper (PDF)**: [QwerySmith: Multi-Source Curriculum Fine-Tuning and Robust Evaluation for Text-to-SQL](https://drive.google.com/file/d/1sN1eVn7LpOi6cLEI1euxOT2cByBoXLlg/view?usp=sharing)
+- **Codebase**: [GitHub Cyrax321/QwerySmith-1.0](https://github.com/Cyrax321/QwerySmith-1.0)
 
 If you use QwerySmith, its curriculum mixing strategy, or the evaluation framework in your research, please cite:
 
@@ -277,6 +281,7 @@ If you use QwerySmith, its curriculum mixing strategy, or the evaluation framewo
   author={Cyrax},
   year={2026},
   publisher={GitHub},
+  url={https://drive.google.com/file/d/1sN1eVn7LpOi6cLEI1euxOT2cByBoXLlg/view?usp=sharing},
   howpublished={\url{https://github.com/Cyrax321/QwerySmith-1.0}}
 }
 ```
