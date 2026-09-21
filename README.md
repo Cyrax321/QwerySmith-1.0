@@ -580,7 +580,7 @@ python qwerysmith_eval.py --stage all --out runs/v11-C
 ### Metrics Produced:
 - **Execution-Based Scoring**: Result-set equality against gold SQL using in-memory SQLite instances.
 - **Statistical Significance**: Paired bootstrap confidence intervals, Wilson score intervals, and McNemar test.
-- **Inter-Rater Reliability**: Cohen's kappa, Fleiss' kappa, and Gwet's AC1.
+- **Inter-Rater Agreement & Reliability**: Multi-evaluator Cohen's kappa, Fleiss' kappa, and Gwet's AC1.
 - **Calibration & Uncertainty**: Expected Calibration Error (ECE), Brier score, and reliability diagrams.
 - **AST Analysis**: Clause-level confusion matrices (WHERE, GROUP BY, HAVING, ORDER BY, JOIN) and schema-linking P/R/F1.
 
