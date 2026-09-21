@@ -180,7 +180,7 @@ All evaluations use in-memory SQLite instances pre-populated with synthetic or g
 | **`heldout_sqale`** | Base (Zero-Shot)<br>Base (3-Shot)<br>**QwerySmith 1.1** | 78.7%<br>70.2%<br>**80.9%** | 12.8%<br>12.8%<br>**10.6%** | 50.0% (35.8% to 64.2%)<br>40.9% (27.7% to 55.6%)<br>**45.5% (31.7% to 59.9%)** | 44/47 |
 | **`heldout_large_schema`**| Base (Zero-Shot)<br>Base (3-Shot)<br>**QwerySmith 1.1** | 61.0%<br>53.9%<br>**55.8%** | 1.9%<br>2.6%<br>**1.9%** | 21.8% (15.8% to 29.3%)<br>19.7% (14.0% to 27.0%)<br>**17.6% (12.2% to 24.7%)** | 142/154 |
 
-> **Key Research Finding — The Few-Shot Paradox:**
+> **Key Research Finding — The In-Context Dilution & Few-Shot Degradation Paradox:**
 > Providing 3-shot prompt exemplars to the base model caused prompt dilution and degraded accuracy across real-world enterprise queries (dropping from 52.3% to 47.3% on Gretel, and 50.0% to 40.9% on SQaLe). Fine-tuning embedded SQL syntax rules permanently into the weights, achieving superior accuracy with **zero additional prompt tokens or latency overhead**.
 
 
