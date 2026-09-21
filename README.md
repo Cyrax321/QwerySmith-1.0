@@ -169,7 +169,7 @@ All evaluations use in-memory SQLite instances pre-populated with synthetic or g
 | **In-Distribution** (`sql-create-context`) | 67.2% | **88.5%** | **88.5%** *(84.5% EM)* | **13 Wins, 0 Losses** (+21.3% gain; McNemar $p < 0.001$) |
 | **Enterprise Test** (`synthetic_text_to_sql`) | 47.3% | 34.6% | **55.7%** *(32.0% EM)* | **43 Wins, 18 Losses** (+25 net wins over base) |
 | **Noisy Schemas** (`heldout_sqale`) | 40.9% | — | **45.5%** *(80.9% Valid)* | **4 Wins, 2 Losses** (Highest syntax resilience) |
-| **Complex Schemas** (`heldout_large_schema`)| 19.7% | — | **17.6%** *(55.8% Valid)* | **10 Wins, 13 Losses** (Overlapping 95% CIs) |
+| **Complex Schemas** (`heldout_large_schema`)| 19.7% | — | **17.6%** *(55.8% Valid)* | **10 Wins, 13 Losses** (Overlapping 95% Wilson CIs) |
 
 ### 2. Detailed QwerySmith 1.1 Metrics with 95% Confidence Intervals
 
