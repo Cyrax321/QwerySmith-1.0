@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 
@@ -157,3 +157,31 @@ class DialogueStateTracker:
         """Resets the conversational state for a session."""
         if session_id in self.sessions:
             del self.sessions[session_id]
+
+    def export_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Exports session state into a serializable dictionary."""
+        session = self.sessions.get(session_id)
+        if not session:
+            return None
+        return {
+            "session_id": session.session_id,
+            "db_name": session.db_name,
+            "active_tables": list(session.active_tables),
+            "active_filters": session.active_filters,
+            "active_entities": session.active_entities,
+            "turns": [asdict(t) for t in session.turns],
+        }
+
+    def restore_session(self, data: Dict[str, Any]) -> SessionState:
+        """Restores a session state from a serialized dictionary."""
+        session = SessionState(
+            session_id=data["session_id"],
+            db_name=data["db_name"],
+            active_tables=set(data.get("active_tables", [])),
+            active_filters=data.get("active_filters", []),
+            active_entities=data.get("active_entities", []),
+        )
+        for t_dict in data.get("turns", []):
+            session.turns.append(DialogueTurn(**t_dict))
+        self.sessions[session.session_id] = session
+        return session
