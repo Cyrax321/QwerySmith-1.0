@@ -558,7 +558,7 @@ Empirical latency SLAs measured across 10,000 synthetic benchmark operations on 
 
 #### Interactive Memory Commands:
 - `:memory` or `:mem`: View real-time memory telemetry (turns recorded, verified queries, self-healed patterns, DB breakdown).
-- `:clearmem`: Clear the ephemeral multi-turn context for the active session while retaining long-term verified SQL experience.
+- `:clearmem`: Compact and reset ephemeral dialogue context for the active session while retaining long-term verified SQL experience.
 
 ---
 
