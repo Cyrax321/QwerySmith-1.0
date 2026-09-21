@@ -1,3 +1,11 @@
+
+from .exceptions import (
+    HarnessError,
+    DialectError,
+    SchemaLinkingError,
+    DecodingConsensusError,
+    BenchmarkTimeoutError,
+)
 """
 harness -- QwerySmith Agentic Execution, Memory, Self-Healing & Evaluation Harness Package.
 
@@ -83,6 +91,11 @@ __all__ = [
     "SecurityViolationError",
     # Adapters
     "DatabaseAdapter",
+    "HarnessError",
+    "DialectError",
+    "SchemaLinkingError",
+    "DecodingConsensusError",
+    "BenchmarkTimeoutError",
     "QueryResult",
     "SQLiteAdapter",
     # Telemetry & Benchmarks
