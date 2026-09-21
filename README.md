@@ -506,7 +506,7 @@ When multiple candidate SQL hypotheses are sampled across stochastic decoding be
 
 1. **Semantic Result Set Normalization**: Tuples and column projections are canonicalized and sorted to eliminate superficial differences in alias naming or ordering.
 2. **Consensus Majority Election**: The SQL candidate belonging to the largest semantic equivalence cluster is selected.
-3. **Complexity Scorer Tie-Breaking (`query_complexity`)**: If multiple candidates yield identical valid results, the engine selects the candidate with lower structural syntactic complexity (fewer redundant joins and subqueries).
+3. **Complexity Scorer Tie-Breaking (`query_complexity`)**: When candidate clusters reach parity in quorum voting, the tie is broken via `query_complexity()` which computes an AST clause penalty score (fewer redundant joins and subqueries).
 
 
 ### AST Self-Healing Reflection
