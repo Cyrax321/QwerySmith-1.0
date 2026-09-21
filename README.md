@@ -15,6 +15,34 @@
 
 ---
 
+## Table of Contents
+
+- [Repository Layout](#-repository-layout)
+- [Key Capabilities](#-key-capabilities)
+- [Model Family & Evolution](#-model-family--evolution-v10-vs-v11)
+- [Benchmark Results](#-comprehensive-benchmark-results)
+- [Published Models on Hugging Face](#-published-models-on-hugging-face)
+- [Quickstart & Inference](#-quickstart--inference)
+- [Hardware Resource Profile](#-hardware-resource-profile)
+- [Training Pipelines](#-training-both-versions-google-colab--linux-gpu)
+- [Harness Architecture](#-autonomous-conversational-agent--real-world-live-experiment-harnessagentpy)
+  - [Security Sandbox & AST Guards](#production-security-architecture)
+  - [CLI Runner Reference](#from-terminal--cli)
+  - [Multi-Engine Adapters](#multi-engine-adapters-sqlite--duckdb)
+  - [Automated Benchmarking](#automated-benchmarking)
+  - [Multi-Turn Dialogue Tracking](#dialogue-state-tracking--session-persistence)
+  - [Candidate Consensus Voting](#execution-guided-candidate-consensus-voting)
+  - [AST Self-Healing Reflection](#ast-self-healing-reflection)
+  - [Persistent Agentic Memory](#-ultra-fast-persistent-agentic-memory-layer-harnessmemorypy)
+- [Research Evaluation Toolkit](#-research--evaluation-toolkit-qwerysmith_evalpy)
+- [CLI Reference](#-cli-reference-qwerysmith_v11py)
+- [Test Suite Status](#harness-verification--test-suite-status)
+- [Citation & Paper](#-citation--paper)
+- [License](#-license)
+
+
+---
+
 ## 📂 Repository Layout
 
 ```text
