@@ -740,7 +740,7 @@ class QwerySmithAgent:
 
             # Route 3: General Chit-Chat / Concepts / Reasoning
             if intent == "CONVERSATIONAL":
-                print("\n💭 Thinking...")
+                print("\n💬 Formulating response...")
                 reply = self.chat_conversational(user_input, tables)
                 print(f"\n🤖 QwerySmith:\n  {reply}\n")
                 continue
