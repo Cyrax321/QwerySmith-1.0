@@ -322,6 +322,25 @@ QwerySmith implements a zero-trust, defense-in-depth isolation boundary ensuring
 2. **AST Mutation Keyword Prevention**: The SQL validation engine intercepts and aborts any statement containing `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `CREATE`, `VACUUM`, `ATTACH`, or mutating `PRAGMA` directives prior to database dispatch.
 3. **Cartesian Lock Interruption**: A native SQLite opcode progress handler callback interrupts any query execution exceeding the configured timeout (default `3.0s`), guarding against accidental runaway cartesian products.
 
+
+### 🔌 Multi-Engine Database Adapters: SQLite & DuckDB
+
+Seamlessly switch between SQLite for embedded transactional storage and DuckDB for columnar analytics without modifying agent logic:
+
+```python
+from harness.adapters import SQLiteAdapter, DuckDBAdapter
+
+# 1. SQLite execution with read-only sandbox
+sqlite_db = SQLiteAdapter("company_store.db", timeout_sec=2.0)
+res_sqlite = sqlite_db.execute_query("SELECT COUNT(*) FROM orders;")
+print("Total Orders:", res_sqlite["rows"][0][0])
+
+# 2. DuckDB execution for analytical acceleration
+duck_db = DuckDBAdapter("company_store.db")
+res_duck = duck_db.execute_query("SELECT AVG(total_amount) FROM orders;")
+print("Average Order Total:", res_duck["rows"][0][0])
+```
+
 ### 🚀 Running the Live Interactive Chat Loop
 
 #### In Google Colab or Jupyter Notebook:
