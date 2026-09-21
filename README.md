@@ -198,6 +198,10 @@ All models are published in three optimized formats to support production, edge,
 | **Merged 16-Bit** | [`Cyrax321/QwerySmith-1.1-Merged`](https://huggingface.co/Cyrax321/QwerySmith-1.1-Merged) | ~8.06 GB | Standalone deployment via vLLM, TGI, or Hugging Face Pipelines (bfloat16) |
 | **Quantized GGUF** | [`Cyrax321/QwerySmith-1.1-GGUF`](https://huggingface.co/Cyrax321/QwerySmith-1.1-GGUF/tree/main) | ~2.5 GB | Ultra-fast local execution with Ollama or `llama.cpp` |
 
+
+
+> **Checkpoint Integrity**: All published weights are cryptographically verified via Git LFS SHA256 hashes and tested against deterministic inference seeds.
+
 ### QwerySmith 1.0
 | Format | Repository | Size | Ideal Use Case |
 |---|---|---|---|
