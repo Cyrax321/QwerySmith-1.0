@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 #!/usr/bin/env python3
 """
 harness/adapters/sqlite_adapter.py -- SQLite Database Driver with Sandboxing
@@ -86,3 +87,14 @@ class SQLiteAdapter(DatabaseAdapter):
 
     def close(self) -> None:
         pass
+
+    @contextmanager
+    def transaction(self):
+        """Context manager providing an atomic transaction with rollback on failure."""
+        conn = self.get_connection()
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
