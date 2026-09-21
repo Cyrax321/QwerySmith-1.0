@@ -342,7 +342,15 @@ When multiple candidate SQL hypotheses are generated (e.g. via temperature sampl
 2. **Consensus Majority Election**: The SQL candidate belonging to the largest semantic equivalence cluster is selected.
 3. **Complexity Scorer Tie-Breaking (`query_complexity`)**: If multiple candidates yield identical valid results, the engine selects the candidate with lower structural syntactic complexity (fewer redundant joins and subqueries).
 
-- **AST Self-Healing Reflection**: Catches SQL execution tracebacks (e.g., column misspellings or syntax faults) and self-heals in real time.
+
+### AST Self-Healing Reflection
+
+The `SelfHealingEngine` intercepts database runtime errors and guides multi-step iterative recovery:
+
+- **Misspelled Column/Table Diagnosis**: Matches invalid identifiers against the extracted schema graph using Levenshtein distance similarity.
+- **Empty Result Set Anomalies**: Detects when a query executes syntactically but returns zero rows due to over-constrained equality filters, suggesting case-insensitive `LIKE` or relaxed clauses.
+- **Retry Budget Exhaustion**: Bounded by `max_repair_attempts` to guarantee bounded latency SLAs.
+
 - **Real-Time Temporal Grounding**: Accurately answers date-dependent and relative-time queries without hallucinating historical dates.
 - **Ultra-Fast Persistent Agentic Memory (`harness/memory.py`)**: Built with SQLite WAL mode, B-Tree session indexing, and FTS5 BM25 search (<1ms retrieval latency). Resolves conversational follow-ups and accumulates verified/healed SQL patterns across sessions.
 
