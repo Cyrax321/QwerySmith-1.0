@@ -346,7 +346,7 @@ The QwerySmith runtime harness is engineered as 7 modular, decoupled subsystems:
 ## 🤖 Autonomous Conversational Agent & Real-World Live Experiment (`harness/agent.py`)
 
 QwerySmith 1.1 includes a production autonomous agent designed as a **dual-mode conversational database assistant**:
-1. **Specialized SQL Synthesis Mode**: Uses the fine-tuned QwerySmith 1.1 QLoRA adapter for precise, schema-linked SQLite/PostgreSQL generation.
+1. **Specialized SQL Synthesis Mode**: Dispatches input to the QwerySmith 1.1 QLoRA adapter for deterministic schema-linked query synthesis.
 2. **General Conversational LLM Mode**: Temporarily bypasses adapter weights (`model.disable_adapter()`) to unlock the base **Qwen3-4B Instruct** model for fluent chit-chat, conceptual SQL explanations, and translating raw query tuples into natural human English.
 3. **Real-Time Data Grounding**: Integrates live system clock (`datetime.now()`) for temporal awareness and introspects live database catalogs in real time.
 
