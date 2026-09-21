@@ -426,8 +426,7 @@ class QwerySmithAgent:
         enc = self.tok([prompt], return_tensors="pt").to(device)
 
         with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message=".*max_new_tokens.*")
-            warnings.filterwarnings("ignore", category=UserWarning)
+            warnings.simplefilter("ignore")
             with torch.no_grad():
                 with self.disable_adapter_ctx():
                     gen = self.model.generate(
@@ -450,14 +449,32 @@ class QwerySmithAgent:
         tables = [row[0].strip() + ";" for row in cur.fetchall() if row[0]]
         return "\n".join(tables)
 
-    def generate_sql(self, schema: str, question: str, error_feedback: str | None = None) -> str:
+    def generate_sql(
+        self,
+        schema: str,
+        question: str,
+        failed_sql: str | None = None,
+        error_feedback: str | None = None,
+    ) -> str:
         """Translates natural language question and database schema into pure SQL."""
         system_msg = (
-            "You are a text-to-SQL assistant. Given a database schema and a question, "
-            "reply with exactly one SQL query and nothing else."
+            "You are an expert Text-to-SQL database engine. Given a database schema and a question, "
+            "reply with exactly one executable SQLite query and nothing else.\n"
+            "Critical Rules:\n"
+            "1. Output ONLY the raw SQL query. Do not wrap in markdown quotes, comments, or prose.\n"
+            "2. Always prefix column names with their table name or table alias (e.g., Track.TrackId or t.TrackId) "
+            "whenever joining multiple tables to prevent ambiguous column errors.\n"
+            "3. Ensure all table and column names strictly match the schema."
         )
         user_content = f"Schema:\n{schema}\n\nQuestion: {question}"
-        if error_feedback:
+        if error_feedback and failed_sql:
+            user_content += (
+                f"\n\nPrevious attempted query:\n```sql\n{failed_sql}\n```\n\n"
+                f"Execution failed with SQLite error:\n{error_feedback}\n\n"
+                "Please repair this query. Ensure table aliases are correct, verify column names against the schema, "
+                "and prefix every selected or grouped column with its table alias."
+            )
+        elif error_feedback:
             user_content += f"\n\nPrevious attempt failed with error:\n{error_feedback}\nPlease repair the query."
 
         messages = [
@@ -478,8 +495,7 @@ class QwerySmithAgent:
         enc = self.tok([prompt], return_tensors="pt").to(device)
 
         with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message=".*max_new_tokens.*")
-            warnings.filterwarnings("ignore", category=UserWarning)
+            warnings.simplefilter("ignore")
             with torch.no_grad():
                 gen = self.model.generate(
                     **enc,
@@ -522,8 +538,13 @@ class QwerySmithAgent:
             {"role": "user", "content": user_msg},
         ], max_tokens=220)
 
-    def chat_conversational(self, user_prompt: str, table_names: list[str] | None = None) -> str:
-        """Responds to general chit-chat, conceptual questions, coding help, and greetings."""
+    def chat_conversational(
+        self,
+        user_prompt: str,
+        table_names: list[str] | None = None,
+        last_context: dict | None = None,
+    ) -> str:
+        """Responds to general chit-chat, conceptual questions, coding help, and explanations."""
         now_str = datetime.now().strftime("%A, %B %d, %Y %I:%M %p")
         tables_str = ", ".join(table_names) if table_names else "none"
         system_msg = (
@@ -531,12 +552,24 @@ class QwerySmithAgent:
             f"Real-time timestamp: {now_str}. "
             f"You are connected to a live database containing tables: [{tables_str}]. "
             "You can engage in natural conversation, explain database and SQL concepts, write code, "
-            "or help the user analyze data. Reply naturally, warmly, and helpfully."
+            "or help the user analyze data and diagnose query errors. Reply naturally, warmly, and helpfully."
         )
+        context_str = ""
+        if last_context:
+            if not last_context.get("success", True):
+                context_str = (
+                    f"\n\n[System Note: The user previously asked '{last_context.get('question')}'. "
+                    f"The generated query was: '{last_context.get('sql')}'. "
+                    f"It failed with SQLite error: '{last_context.get('error')}'. "
+                    f"If the user asks why it failed, explain this exact error technically and describe how to correct it.]"
+                )
+            elif last_context.get("sql"):
+                context_str = f"\n\n[System Note: The last query executed was: '{last_context.get('sql')}']"
+
         return self.generate_chat_text([
             {"role": "system", "content": system_msg},
-            {"role": "user", "content": user_prompt},
-        ], max_tokens=300)
+            {"role": "user", "content": user_prompt + context_str},
+        ], max_tokens=350)
 
     def query(self, db_path: str | Path, question: str, auto_repair: bool = True) -> dict:
         """End-to-end execution: NL Question -> SQL -> DB Sandbox Execution -> Human Synthesis."""
@@ -575,10 +608,13 @@ class QwerySmithAgent:
                 "success": True,
             }
         except Exception as err:
+            conn.close()
             if auto_repair:
-                # Attempt self-healing reflection
-                repaired_sql = self.generate_sql(schema, question, error_feedback=str(err))
+                print(f"  ⚠️ Initial SQL failed: {err}")
+                print("  🔄 Engaging self-healing reflection engine...")
+                repaired_sql = self.generate_sql(schema, question, failed_sql=sql, error_feedback=str(err))
                 try:
+                    conn = sqlite3.connect(str(db_path))
                     cur = conn.cursor()
                     cur.execute(repaired_sql)
                     columns = [desc[0] for desc in cur.description] if cur.description else []
@@ -603,10 +639,10 @@ class QwerySmithAgent:
                     return {
                         "question": question,
                         "sql": repaired_sql,
+                        "attempted_original": sql,
                         "error": str(err2),
                         "success": False,
                     }
-            conn.close()
             return {"question": question, "sql": sql, "error": str(err), "success": False}
 
     # ----------------------------------------------------------------------
@@ -640,6 +676,7 @@ class QwerySmithAgent:
         print("  • 'What is today's date and how many orders do we have?'")
         print("=" * 72 + "\n")
 
+        last_interaction = None
         while True:
             try:
                 user_input = input("💬 You: ").strip()
@@ -741,13 +778,14 @@ class QwerySmithAgent:
             # Route 3: General Chit-Chat / Concepts / Reasoning
             if intent == "CONVERSATIONAL":
                 print("\n💬 Formulating response...")
-                reply = self.chat_conversational(user_input, tables)
+                reply = self.chat_conversational(user_input, tables, last_context=last_interaction)
                 print(f"\n🤖 QwerySmith:\n  {reply}\n")
                 continue
 
             # Route 4: Real-time Database Query & Natural Language Synthesis
             print("\n⚡ Synthesizing SQL query...")
             res = self.query(db_file, user_input)
+            last_interaction = res
 
             if res["success"]:
                 # Print natural human explanation first
@@ -768,7 +806,10 @@ class QwerySmithAgent:
                 print()
             else:
                 print(f"\n❌ Execution Failed: {res.get('error', 'Unknown error')}")
-                print(f"   Attempted SQL: {res.get('sql', 'N/A')}\n")
+                print(f"   Attempted SQL: {res.get('sql', 'N/A')}")
+                if "attempted_original" in res:
+                    print(f"   Initial SQL:   {res.get('attempted_original')}")
+                print()
 
 
 # --------------------------------------------------------------------------
