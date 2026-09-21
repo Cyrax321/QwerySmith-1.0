@@ -669,7 +669,7 @@ All 34 automated unit and integration tests passing cleanly with 100% test cover
 
 ## 🤝 Acknowledgments & Collaborators
 
-- Developed and maintained by **Beans (`@Cyrax321`)** and **Anya (`@anya-research`)**.
+- Developed and maintained by **Beans (`@Cyrax321`)** and **Anya (`@anya-research`)** under the MIT license.
 - Built on top of [Unsloth](https://github.com/unslothai/unsloth), [TRL](https://github.com/huggingface/trl), and [Qwen3](https://github.com/QwenLM/Qwen).
 - Benchmark evaluations powered by [Spider](https://yale-lily.github.io/spider) and [BIRD](https://bird-bench.github.io/).
 
