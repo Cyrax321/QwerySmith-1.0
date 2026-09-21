@@ -42,6 +42,11 @@ QwerySmith is engineered around three interconnected architectural pillars desig
 - **Curriculum Mixture**: 50/50 balanced synthetic and enterprise SQL context mix (`sql-create-context` + `synthetic_text_to_sql`).
 - **Optimization**: Learning rate $1 	imes 10^{-4}$ with cosine annealing, LoRA rank $r=16$, scale $\alpha=32$, and dropout 0.05 preventing distribution collapse.
 
+### Pillar II: Deterministic Execution Sandbox & Adapters
+- **Filesystem Immutability**: All SQLite connections enforce `file:{path}?mode=ro` with URI parameters.
+- **AST Safety Verifier**: Rejects DDL and mutating DML statements (`DROP`, `ALTER`, `INSERT`, `UPDATE`, `DELETE`) before database execution.
+- **Cartesian Interrupter**: Native opcode progress handler callback enforcing strict execution timeouts (default 3.0s).
+
 ## 📂 Repository Layout
 
 ```text
