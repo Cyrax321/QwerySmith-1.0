@@ -417,7 +417,7 @@ print("Execution Engine:", duck_db.engine_name)
 
 ### 📊 Automated Benchmarking & CSV Export Recipe
 
-Run standard Spider/BIRD evaluations against the agent pipeline and export per-sample execution reports:
+Execute automated Spider and BIRD benchmark suites against the neuro-symbolic agent pipeline and export per-sample execution reports:
 
 ```python
 from harness.benchmark import BenchmarkEvaluator, BenchmarkItem
