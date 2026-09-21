@@ -504,7 +504,7 @@ python -m harness --model Cyrax321/QwerySmith-1.1 --db company_store.db
 
 When multiple candidate SQL hypotheses are sampled across stochastic decoding beams (e.g. via temperature sampling or diverse beams), QwerySmith evaluates each candidate in an isolated sandbox and clusters them by their **semantic result set hash**:
 
-1. **Semantic Result Set Normalization**: Rows and columns are normalized to eliminate superficial differences in alias naming or ordering.
+1. **Semantic Result Set Normalization**: Tuples and column projections are canonicalized and sorted to eliminate superficial differences in alias naming or ordering.
 2. **Consensus Majority Election**: The SQL candidate belonging to the largest semantic equivalence cluster is selected.
 3. **Complexity Scorer Tie-Breaking (`query_complexity`)**: If multiple candidates yield identical valid results, the engine selects the candidate with lower structural syntactic complexity (fewer redundant joins and subqueries).
 
