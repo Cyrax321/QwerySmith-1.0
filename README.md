@@ -482,6 +482,15 @@ python -m pytest tests/test_full_harness_pipeline.py -v
 
 All 34 automated unit and integration tests passing cleanly.
 
+
+---
+
+## 🤝 Acknowledgments & Collaborators
+
+- Developed and maintained by **Beans (`@Cyrax321`)** and **Anya (`@anya-research`)**.
+- Built on top of [Unsloth](https://github.com/unslothai/unsloth), [TRL](https://github.com/huggingface/trl), and [Qwen3](https://github.com/QwenLM/Qwen).
+- Benchmark evaluations powered by [Spider](https://yale-lily.github.io/spider) and [BIRD](https://bird-bench.github.io/).
+
 ## 📜 License
 
 This project is licensed under the MIT License.
