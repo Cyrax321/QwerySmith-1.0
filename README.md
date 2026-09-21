@@ -547,7 +547,7 @@ QwerySmith incorporates a standalone, decoupled agentic memory engine designed f
 
 ### ⚡ Persistent Memory Latency SLA & Benchmarks
 
-Empirical performance measurements across 10,000 synthetic operations:
+Empirical latency SLAs measured across 10,000 synthetic benchmark operations on Apple Silicon / Linux:
 
 | Operation | Implementation | Latency (P50) | Latency (P99) | Complexity |
 |:---|:---|:---:|:---:|:---:|
