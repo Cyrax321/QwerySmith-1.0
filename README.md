@@ -285,6 +285,12 @@ vllm serve Cyrax321/QwerySmith-1.1-Merged \
 
 ---
 
+
+```bash
+# Run with llama.cpp CLI
+llama-cli -m QwerySmith-1.1-Q4_K_M.gguf -p "<|im_start|>user\nSchema: CREATE TABLE t(x INT);\nQuestion: What is x?<|im_end|>\n<|im_start|>assistant\n"
+```
+
 ## ⚡ Hardware Resource Profile
 
 Training and inference resource footprint measured on standard cloud hardware:
