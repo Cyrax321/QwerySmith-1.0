@@ -621,7 +621,7 @@ If you use QwerySmith, its curriculum mixing strategy, or the evaluation framewo
 
 ```bibtex
 @misc{qwerysmith2026,
-  title={QwerySmith: Multi-Source Curriculum Fine-Tuning and Robust Evaluation for Text-to-SQL},
+  title={QwerySmith: Multi-Source Curriculum Fine-Tuning and Robust Neuro-Symbolic Evaluation for Text-to-SQL},
   author={Cyrax},
   year={2026},
   publisher={GitHub},
