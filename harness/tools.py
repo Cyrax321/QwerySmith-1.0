@@ -272,39 +272,21 @@ def execute_query(
     conn_or_path: Union[sqlite3.Connection, str, Path],
     sql: str,
     max_rows: int = 100,
+    timeout_sec: float = 3.0,
+    read_only: bool = False,
 ) -> Dict[str, Any]:
     """
     Executes a SQL query safely inside an isolated transaction with microsecond timing.
     Returns: {columns, rows, latency_exec_ms, error, success}
     """
-    conn, should_close = _get_connection(conn_or_path)
-    t0 = time.perf_counter()
-    try:
-        cur = conn.cursor()
-        cur.execute(sql)
-        columns = [desc[0] for desc in cur.description] if cur.description else []
-        rows = cur.fetchmany(max_rows)
-        latency = (time.perf_counter() - t0) * 1000
-        if should_close:
-            conn.close()
-        return {
-            "columns": columns,
-            "rows": rows,
-            "latency_exec_ms": latency,
-            "error": None,
-            "success": True,
-        }
-    except Exception as e:
-        latency = (time.perf_counter() - t0) * 1000
-        if should_close:
-            conn.close()
-        return {
-            "columns": [],
-            "rows": [],
-            "latency_exec_ms": latency,
-            "error": str(e),
-            "success": False,
-        }
+    from .security.sandbox import execute_sandboxed_query
+    return execute_sandboxed_query(
+        conn_or_path=conn_or_path,
+        sql=sql,
+        max_rows=max_rows,
+        timeout_sec=timeout_sec,
+        read_only=read_only,
+    )
 
 
 def get_schema(conn_or_path: Union[sqlite3.Connection, str, Path]) -> str:
