@@ -257,7 +257,7 @@ Question: What is the total revenue from completed orders?<|im_end|>
 """
 
 inputs = tokenizer([prompt], return_tensors="pt").to("cuda")
-outputs = model.generate(**inputs, max_new_tokens=256, use_cache=True)
+outputs = model.generate(**inputs, max_new_tokens=256, temperature=0.0, use_cache=True)
 print(tokenizer.batch_decode(outputs)[0])
 ```
 
