@@ -411,6 +411,7 @@ print("Total Orders:", res_sqlite["rows"][0][0])
 duck_db = DuckDBAdapter("company_store.db")
 res_duck = duck_db.execute_query("SELECT AVG(total_amount) FROM orders;")
 print("Average Order Total:", res_duck["rows"][0][0])
+print("Execution Engine:", duck_db.engine_name)
 ```
 
 
