@@ -317,6 +317,17 @@ agent.chat_loop()
 # Run agent via harness package module
 python -m harness --model Cyrax321/QwerySmith-1.1 --db company_store.db
 ```
+#### Harness CLI Arguments:
+| Flag | Type | Default | Description |
+|:---|:---:|:---:|:---|
+| `--model` | str | `Cyrax321/QwerySmith-1.1` | Hugging Face model ID or local adapter directory |
+| `--db` | str | `company_store.db` | Target SQLite database file |
+| `--query` | str | `""` | One-shot execution query mode (exits after evaluation) |
+| `--timeout` | float | `3.0` | Maximum query execution timeout in seconds |
+| `--enable-pruning` | flag | `True` | Enable graph-based schema pruning |
+| `--enable-grounding`| flag | `True` | Enable categorical value grounding |
+| `--max-repairs` | int | `3` | Maximum AST reflection self-healing retries |
+
 
 ### 🧠 Agent Architectural Highlights:
 - **Dual-Mode Adapter Control**: Automatically disables the LoRA adapter for conversational dialogue and re-enables it for SQL generation, eliminating prompt contamination and output collapse.
