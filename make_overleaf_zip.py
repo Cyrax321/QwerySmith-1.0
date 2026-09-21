@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
     import paper_eval
 except ImportError:
-    print("⚠️ paper_eval.py not found locally; fetching from GitHub...")
+    print("[Warning] paper_eval.py not found locally; fetching from GitHub...")
     import urllib.request
     url = "https://raw.githubusercontent.com/Cyrax321/QwerySmith-1.0/main/paper_eval.py"
     urllib.request.urlretrieve(url, "paper_eval.py")
@@ -34,7 +34,7 @@ def main():
         output_zip=args.out_zip,
         download_in_colab=not args.no_download,
     )
-    print(f"✅ Finished! Ready for Overleaf: {zip_path}")
+    print(f"[Done] Finished! Ready for Overleaf: {zip_path}")
 
 
 if __name__ == "__main__":

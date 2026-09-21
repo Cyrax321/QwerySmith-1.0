@@ -405,20 +405,20 @@ def load_data(run_dir: Path):
     """Loads prediction records, logs, and pre-computed results from actual run files."""
     run_dir = Path(run_dir).resolve()
     print("=" * 70)
-    print("🔍 QWERYSMITH INSTITUTIONAL EVALUATION LOADER")
-    print(f"📂 Inspecting run directory: {run_dir}")
+    print("[Info] QWERYSMITH INSTITUTIONAL EVALUATION LOADER")
+    print(f"[Inspect] Run directory: {run_dir}")
     print("=" * 70)
 
     # 1. Load results.json if present
     results_json = {}
     for r_candidate in [run_dir / "results.json", run_dir / "eval" / "results.json"]:
         if r_candidate.exists():
-            print(f"  ✅ Loading benchmark metrics from {r_candidate.name}...")
+            print(f"  [OK] Loading benchmark metrics from {r_candidate.name}...")
             try:
                 results_json = json.loads(r_candidate.read_text(encoding="utf-8"))
                 break
             except Exception as e:
-                print(f"  ⚠️ Could not parse {r_candidate.name}: {e}")
+                print(f"  [Warning] Could not parse {r_candidate.name}: {e}")
 
     # 2. Load results.md or REPORT.md if present
     md_significance = {}
@@ -435,7 +435,7 @@ def load_data(run_dir: Path):
                     w, l = int(w_str), int(l_str)
                     md_significance[sname] = mcnemar_from_counts(w, l)
                 if md_significance:
-                    print(f"  ✅ Parsed authentic pairwise significance from {md_candidate.name} ({len(md_significance)} splits)")
+                    print(f"  [OK] Parsed authentic pairwise significance from {md_candidate.name} ({len(md_significance)} splits)")
                     results_json["_significance"] = md_significance
                 if not any(not k.startswith("_") for k in results_json):
                     table_rows = re.findall(
@@ -453,17 +453,17 @@ def load_data(run_dir: Path):
                             "exec_ci": [float(lo_s) / 100.0, float(hi_s) / 100.0],
                         }
                     if any(not k.startswith("_") for k in results_json):
-                        print(f"  ✅ Parsed authentic benchmark metrics table from {md_candidate.name}")
+                        print(f"  [OK] Parsed authentic benchmark metrics table from {md_candidate.name}")
                 if md_significance or any(not k.startswith("_") for k in results_json):
                     break
             except Exception as e:
-                print(f"  ⚠️ Could not parse {md_candidate.name}: {e}")
+                print(f"  [Warning] Could not parse {md_candidate.name}: {e}")
 
     # 3. Load train_log.json or trainer_state.json if present
     train_log = []
     for t_candidate in [run_dir / "train_log.json", run_dir / "trainer" / "trainer_state.json"]:
         if t_candidate.exists():
-            print(f"  ✅ Loading training history from {t_candidate.name}...")
+            print(f"  [OK] Loading training history from {t_candidate.name}...")
             try:
                 raw_t = json.loads(t_candidate.read_text(encoding="utf-8"))
                 if isinstance(raw_t, dict) and "log_history" in raw_t:
@@ -472,7 +472,7 @@ def load_data(run_dir: Path):
                     train_log = raw_t
                 break
             except Exception as e:
-                print(f"  ⚠️ Could not parse {t_candidate.name}: {e}")
+                print(f"  [Warning] Could not parse {t_candidate.name}: {e}")
 
     # 4. Load queries and execution records from CSV
     csv_candidates = [
@@ -495,7 +495,7 @@ def load_data(run_dir: Path):
     items_by_set = defaultdict(list)
 
     if csv_file:
-        print(f"  ✅ Loading queries and execution records from {csv_file.name}...")
+        print(f"  [OK] Loading queries and execution records from {csv_file.name}...")
         with open(csv_file, mode="r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
 
@@ -549,7 +549,7 @@ def load_data(run_dir: Path):
                     "finetuned_error": classify_failure_mode(ft_pred, gold) if ft_ex is not True else None,
                 })
     else:
-        print("  ⚠️ predictions.csv not found; looking for preds/*.json ...")
+        print("  [Warning] predictions.csv not found; looking for preds/*.json ...")
         preds_dir = run_dir / "preds"
         if preds_dir.exists():
             for f in sorted(list(preds_dir.glob("*.json"))):
@@ -568,10 +568,10 @@ def load_data(run_dir: Path):
                             items_by_set[sname][i][f"{sysname}_pred"] = clean_p
                             items_by_set[sname][i][f"{sysname}_valid"] = is_valid_sql_syntax(clean_p)
                     except Exception as e:
-                        print(f"  ⚠️ Could not read {f.name}: {e}")
+                        print(f"  [Warning] Could not read {f.name}: {e}")
 
     # Diagnostics printout
-    print(f"\n📊 --- AUTHENTIC DATA LOADING DIAGNOSTICS ---")
+    print(f"\n--- AUTHENTIC DATA LOADING DIAGNOSTICS ---")
     if items_by_set:
         print(f"  Splits loaded from predictions ({len(items_by_set)} total):")
         for s, items in items_by_set.items():
@@ -584,7 +584,7 @@ def load_data(run_dir: Path):
             else:
                 print(f"  • {s:22s}: {len(items)} items | Valid SQL only (execution correctness not in file)")
     else:
-        print("  ⚠️ No individual query items loaded into memory.")
+        print("  [Warning] No individual query items loaded into memory.")
 
     if results_json.get("_significance"):
         print(f"  Authentic Pairwise Significance (FT vs 3-Shot Base):")
@@ -858,12 +858,12 @@ def analyze_dataset(items_by_set: dict, results_json: dict) -> dict:
 def generate_figures(analysis: dict, train_log: list, out_dir: Path):
     """Renders all 13 publication figures strictly from authentic computed metrics."""
     if plt is None or np is None:
-        print("⚠️ Matplotlib/NumPy not installed. Skipping figure rendering.")
+        print("[Warning] Matplotlib/NumPy not installed. Skipping figure rendering.")
         return
 
     fig_dir = out_dir / "figures"
     fig_dir.mkdir(parents=True, exist_ok=True)
-    print(f"\n🎨 Generating publication figures in {fig_dir} ...")
+    print(f"\n[Figures] Generating publication figures in {fig_dir} ...")
 
     sets = [s for s, sys_dict in analysis.get("benchmarks", {}).items() if any(m.get("n", 0) > 0 for m in sys_dict.values())]
     if not sets:
@@ -919,7 +919,7 @@ def generate_figures(analysis: dict, train_log: list, out_dir: Path):
         fig.savefig(fig_dir / "fig1_execution_accuracy.png")
         fig.savefig(fig_dir / "fig1_execution_accuracy.pdf")
         plt.close(fig)
-        print("  ✅ Saved fig1_execution_accuracy.{png,pdf}")
+        print("  [OK] Saved fig1_execution_accuracy.{png,pdf}")
     else:
         print("  ℹ️ No benchmark data available; skipping fig1_execution_accuracy.")
 
@@ -966,7 +966,7 @@ def generate_figures(analysis: dict, train_log: list, out_dir: Path):
         fig.savefig(fig_dir / "fig2_exact_vs_execution.png")
         fig.savefig(fig_dir / "fig2_exact_vs_execution.pdf")
         plt.close(fig)
-        print("  ✅ Saved fig2_exact_vs_execution.{png,pdf}")
+        print("  [OK] Saved fig2_exact_vs_execution.{png,pdf}")
     else:
         print("  ℹ️ No fine-tuned benchmark data available; skipping fig2_exact_vs_execution.")
 
@@ -1004,7 +1004,7 @@ def generate_figures(analysis: dict, train_log: list, out_dir: Path):
         fig.savefig(fig_dir / "fig3_clause_f1_scores.png")
         fig.savefig(fig_dir / "fig3_clause_f1_scores.pdf")
         plt.close(fig)
-        print("  ✅ Saved fig3_clause_f1_scores.{png,pdf}")
+        print("  [OK] Saved fig3_clause_f1_scores.{png,pdf}")
     else:
         print("  ℹ️ No clause detection data available; skipping fig3_clause_f1_scores.")
 
@@ -1046,7 +1046,7 @@ def generate_figures(analysis: dict, train_log: list, out_dir: Path):
         fig.savefig(fig_dir / "fig4_pairwise_win_loss.png")
         fig.savefig(fig_dir / "fig4_pairwise_win_loss.pdf")
         plt.close(fig)
-        print("  ✅ Saved fig4_pairwise_win_loss.{png,pdf}")
+        print("  [OK] Saved fig4_pairwise_win_loss.{png,pdf}")
     else:
         print("  ℹ️ No paired significance data available; skipping fig4_pairwise_win_loss.")
 
@@ -1078,7 +1078,7 @@ def generate_figures(analysis: dict, train_log: list, out_dir: Path):
         fig.savefig(fig_dir / "fig5_training_dynamics.png")
         fig.savefig(fig_dir / "fig5_training_dynamics.pdf")
         plt.close(fig)
-        print("  ✅ Saved fig5_training_dynamics.{png,pdf}")
+        print("  [OK] Saved fig5_training_dynamics.{png,pdf}")
     else:
         print("  ℹ️ No authentic loss history in train_log.json; skipping fig5_training_dynamics.")
 
@@ -1116,7 +1116,7 @@ def generate_figures(analysis: dict, train_log: list, out_dir: Path):
         fig.savefig(fig_dir / "fig6_outcome_transition_matrix.png")
         fig.savefig(fig_dir / "fig6_outcome_transition_matrix.pdf")
         plt.close(fig)
-        print("  ✅ Saved fig6_outcome_transition_matrix.{png,pdf}")
+        print("  [OK] Saved fig6_outcome_transition_matrix.{png,pdf}")
     else:
         print("  ℹ️ No outcome transition data available; skipping fig6_outcome_transition_matrix.")
 
@@ -1157,7 +1157,7 @@ def generate_figures(analysis: dict, train_log: list, out_dir: Path):
         fig.savefig(fig_dir / "fig7_clause_confusion_grid.png")
         fig.savefig(fig_dir / "fig7_clause_confusion_grid.pdf")
         plt.close(fig)
-        print("  ✅ Saved fig7_clause_confusion_grid.{png,pdf}")
+        print("  [OK] Saved fig7_clause_confusion_grid.{png,pdf}")
     else:
         print("  ℹ️ No clause confusion records available; skipping fig7_clause_confusion_grid.")
 
@@ -1189,7 +1189,7 @@ def generate_figures(analysis: dict, train_log: list, out_dir: Path):
         fig.savefig(fig_dir / "fig8_inter_system_agreement_matrix.png")
         fig.savefig(fig_dir / "fig8_inter_system_agreement_matrix.pdf")
         plt.close(fig)
-        print("  ✅ Saved fig8_inter_system_agreement_matrix.{png,pdf}")
+        print("  [OK] Saved fig8_inter_system_agreement_matrix.{png,pdf}")
     else:
         print("  ℹ️ No agreement data available; skipping fig8_inter_system_agreement_matrix.")
 
@@ -1228,7 +1228,7 @@ def generate_figures(analysis: dict, train_log: list, out_dir: Path):
         fig.savefig(fig_dir / "fig9_complexity_heatmap.png")
         fig.savefig(fig_dir / "fig9_complexity_heatmap.pdf")
         plt.close(fig)
-        print("  ✅ Saved fig9_complexity_heatmap.{png,pdf}")
+        print("  [OK] Saved fig9_complexity_heatmap.{png,pdf}")
     else:
         print("  ℹ️ No query complexity records available; skipping fig9_complexity_heatmap.")
 
@@ -1262,7 +1262,7 @@ def generate_figures(analysis: dict, train_log: list, out_dir: Path):
         fig.savefig(fig_dir / "fig10_error_taxonomy_matrix.png")
         fig.savefig(fig_dir / "fig10_error_taxonomy_matrix.pdf")
         plt.close(fig)
-        print("  ✅ Saved fig10_error_taxonomy_matrix.{png,pdf}")
+        print("  [OK] Saved fig10_error_taxonomy_matrix.{png,pdf}")
     else:
         print("  ℹ️ No error taxonomy records available; skipping fig10_error_taxonomy_matrix.")
 
@@ -1300,7 +1300,7 @@ def generate_figures(analysis: dict, train_log: list, out_dir: Path):
         fig.savefig(fig_dir / "fig11_error_migration_matrix.png")
         fig.savefig(fig_dir / "fig11_error_migration_matrix.pdf")
         plt.close(fig)
-        print("  ✅ Saved fig11_error_migration_matrix.{png,pdf}")
+        print("  [OK] Saved fig11_error_migration_matrix.{png,pdf}")
     else:
         print("  ℹ️ No error migration records available; skipping fig11_error_migration_matrix.")
 
@@ -1339,7 +1339,7 @@ def generate_figures(analysis: dict, train_log: list, out_dir: Path):
         fig.savefig(fig_dir / "fig12_clause_correlation_matrices.png")
         fig.savefig(fig_dir / "fig12_clause_correlation_matrices.pdf")
         plt.close(fig)
-        print("  ✅ Saved fig12_clause_correlation_matrices.{png,pdf}")
+        print("  [OK] Saved fig12_clause_correlation_matrices.{png,pdf}")
     else:
         print("  ℹ️ No clause correlation data available; skipping fig12_clause_correlation_matrices.")
 
@@ -1369,7 +1369,7 @@ def generate_figures(analysis: dict, train_log: list, out_dir: Path):
         fig.savefig(fig_dir / "fig13_token_length_stratification.png")
         fig.savefig(fig_dir / "fig13_token_length_stratification.pdf")
         plt.close(fig)
-        print("  ✅ Saved fig13_token_length_stratification.{png,pdf}")
+        print("  [OK] Saved fig13_token_length_stratification.{png,pdf}")
     else:
         print("  ℹ️ No query length records available; skipping fig13_token_length_stratification.")
 
@@ -1381,7 +1381,7 @@ def generate_latex_tables(analysis: dict, out_dir: Path):
     """Generates 10 clean, booktabs LaTeX tables strictly from computed metrics."""
     tab_dir = out_dir / "tables"
     tab_dir.mkdir(parents=True, exist_ok=True)
-    print(f"\n📑 Generating LaTeX tables in {tab_dir} ...")
+    print(f"\n[Tables] Generating LaTeX tables in {tab_dir} ...")
 
     # Table 1: Main Benchmark Results
     t1_path = tab_dir / "table1_main_benchmark.tex"
@@ -1403,7 +1403,7 @@ def generate_latex_tables(analysis: dict, out_dir: Path):
         f.write("\\bottomrule\n\\end{tabular}\n")
         f.write("\\caption{Main benchmark execution accuracy, exact match string parity, and syntactic validity across in-distribution and cross-domain held-out distributions.}\n")
         f.write("\\label{tab:main_benchmark}\n\\end{table*}\n")
-    print("  ✅ Saved table1_main_benchmark.tex")
+    print("  [OK] Saved table1_main_benchmark.tex")
 
     # Table 2: Clause-Level F1 Breakdown
     t2_path = tab_dir / "table2_clause_metrics.tex"
@@ -1419,7 +1419,7 @@ def generate_latex_tables(analysis: dict, out_dir: Path):
         f.write("\\bottomrule\n\\end{tabular}\n")
         f.write("\\caption{Syntactic clause-level precision, recall, and F1 across standard SQL components.}\n")
         f.write("\\label{tab:clause_metrics}\n\\end{table}\n")
-    print("  ✅ Saved table2_clause_metrics.tex")
+    print("  [OK] Saved table2_clause_metrics.tex")
 
     # Table 3: Statistical Significance (McNemar)
     t3_path = tab_dir / "table3_significance.tex"
@@ -1438,7 +1438,7 @@ def generate_latex_tables(analysis: dict, out_dir: Path):
         f.write("\\bottomrule\n\\end{tabular}\n")
         f.write("\\caption{Paired McNemar test results evaluating statistical significance of QwerySmith 1.1 against the 3-shot base model.}\n")
         f.write("\\label{tab:significance}\n\\end{table}\n")
-    print("  ✅ Saved table3_significance.tex")
+    print("  [OK] Saved table3_significance.tex")
 
     # Table 4: 4x4 Outcome State Transition Matrix
     t4_path = tab_dir / "table4_outcome_transition.tex"
@@ -1454,7 +1454,7 @@ def generate_latex_tables(analysis: dict, out_dir: Path):
         f.write("\\bottomrule\n\\end{tabular}\n")
         f.write("\\caption{State transition matrix tracking query migrations from Base 3-Shot to QwerySmith 1.1.}\n")
         f.write("\\label{tab:outcome_transition}\n\\end{table}\n")
-    print("  ✅ Saved table4_outcome_transition.tex")
+    print("  [OK] Saved table4_outcome_transition.tex")
 
     # Table 5: Complexity Tier Matrix
     t5_path = tab_dir / "table5_complexity_matrix.tex"
@@ -1472,7 +1472,7 @@ def generate_latex_tables(analysis: dict, out_dir: Path):
         f.write("\\bottomrule\n\\end{tabular}\n")
         f.write("\\caption{QwerySmith 1.1 execution accuracy stratified across query complexity tiers.}\n")
         f.write("\\label{tab:complexity_matrix}\n\\end{table*}\n")
-    print("  ✅ Saved table5_complexity_matrix.tex")
+    print("  [OK] Saved table5_complexity_matrix.tex")
 
     # Table 6: Error Taxonomy
     t6_path = tab_dir / "table6_error_taxonomy.tex"
@@ -1489,7 +1489,7 @@ def generate_latex_tables(analysis: dict, out_dir: Path):
         f.write("\\bottomrule\n\\end{tabular}\n")
         f.write("\\caption{Failure mode distribution comparing base systems against QwerySmith 1.1.}\n")
         f.write("\\label{tab:error_taxonomy}\n\\end{table}\n")
-    print("  ✅ Saved table6_error_taxonomy.tex")
+    print("  [OK] Saved table6_error_taxonomy.tex")
 
     # Table 7: Diagnostic Clause Testing Matrix
     t7_path = tab_dir / "table7_diagnostic_clause_matrix.tex"
@@ -1503,7 +1503,7 @@ def generate_latex_tables(analysis: dict, out_dir: Path):
         f.write("\\bottomrule\n\\end{tabular}\n")
         f.write("\\caption{Diagnostic evaluation matrix of AST clause generation for QwerySmith 1.1.}\n")
         f.write("\\label{tab:diagnostic_clause_matrix}\n\\end{table*}\n")
-    print("  ✅ Saved table7_diagnostic_clause_matrix.tex")
+    print("  [OK] Saved table7_diagnostic_clause_matrix.tex")
 
     # Table 8: Error Migration & Healing Matrix
     t8_path = tab_dir / "table8_error_migration_matrix.tex"
@@ -1518,7 +1518,7 @@ def generate_latex_tables(analysis: dict, out_dir: Path):
         f.write("\\bottomrule\n\\end{tabular}\n")
         f.write("\\caption{Error recovery and migration matrix displaying how Base 3-Shot failure modes are resolved by QwerySmith 1.1.}\n")
         f.write("\\label{tab:error_migration_matrix}\n\\end{table}\n")
-    print("  ✅ Saved table8_error_migration_matrix.tex")
+    print("  [OK] Saved table8_error_migration_matrix.tex")
 
     # Table 9: Token Length Stratification Matrix
     t9_path = tab_dir / "table9_length_stratification.tex"
@@ -1536,7 +1536,7 @@ def generate_latex_tables(analysis: dict, out_dir: Path):
         f.write("\\bottomrule\n\\end{tabular}\n")
         f.write("\\caption{Execution accuracy stratified by SQL token length.}\n")
         f.write("\\label{tab:length_stratification}\n\\end{table}\n")
-    print("  ✅ Saved table9_length_stratification.tex")
+    print("  [OK] Saved table9_length_stratification.tex")
 
     # Table 10: Per-Split Inter-System Agreement Matrix (Cohen's Kappa)
     t10_path = tab_dir / "table10_persplit_kappa.tex"
@@ -1553,7 +1553,7 @@ def generate_latex_tables(analysis: dict, out_dir: Path):
         f.write("\\bottomrule\n\\end{tabular}\n")
         f.write("\\caption{Inter-system Cohen's Kappa agreement partitioned across benchmark distributions.}\n")
         f.write("\\label{tab:persplit_kappa}\n\\end{table}\n")
-    print("  ✅ Saved table10_persplit_kappa.tex")
+    print("  [OK] Saved table10_persplit_kappa.tex")
 
 
 # --------------------------------------------------------------------------
@@ -1601,7 +1601,7 @@ def generate_report(analysis: dict, out_dir: Path):
         slabel = sname.replace("_", " ").title()
         p_val = mc.get("p_value", 1.0)
         p_str = "< 0.001" if p_val < 0.001 else f"{p_val:.4f}"
-        sig_str = "✅ **Yes**" if mc.get("significant", False) else "❌ No"
+        sig_str = "**Yes**" if mc.get("significant", False) else "No"
         or_val = mc.get("odds_ratio", 1.0)
         or_str = "∞" if math.isinf(or_val) else f"{or_val:.2f}"
         lines.append(f"| {slabel} | {mc.get('total_discordant', 0)} | {mc.get('wins_A', 0)} | {mc.get('wins_B', 0)} | {or_str} | {p_str} | {sig_str} |")
@@ -1627,7 +1627,7 @@ def generate_report(analysis: dict, out_dir: Path):
         lines.append(f"| **{c}** | {b_f1:.1f}% | **{ft_f1:.1f}%** | {p:.3f} | {r:.3f} | {s:.3f} | **{mcc:.3f}** |")
 
     report_path.write_text("\n".join(lines), encoding="utf-8")
-    print(f"  ✅ Saved RESEARCH_PAPER_REPORT.md")
+    print(f"  [OK] Saved RESEARCH_PAPER_REPORT.md")
 
 
 # --------------------------------------------------------------------------
@@ -1644,7 +1644,7 @@ def display_in_colab(paper_dir: Path):
     fig_dir = paper_dir / "figures"
     pngs = sorted(list(fig_dir.glob("*.png")))
     if pngs:
-        display(Markdown("## 📊 Research Paper Evaluation Figures"))
+        display(Markdown("## Research Paper Evaluation Figures"))
         for fpath in pngs:
             display(Markdown(f"### {fpath.stem.replace('_', ' ').title()}"))
             display(Image(filename=str(fpath), width=780))
@@ -1652,7 +1652,7 @@ def display_in_colab(paper_dir: Path):
 
     report_path = paper_dir / "RESEARCH_PAPER_REPORT.md"
     if report_path.exists():
-        display(Markdown("## 📑 Evaluation Summary Report"))
+        display(Markdown("## Evaluation Summary Report"))
         display(Markdown(report_path.read_text(encoding="utf-8")))
 
 
@@ -1673,13 +1673,13 @@ def render_in_colab(run_dir: str = "/content/drive/MyDrive/qwerysmith-1.1", pape
     p_dir.mkdir(parents=True, exist_ok=True)
 
     if not r_dir.exists():
-        print(f"❌ Error: Run directory does not exist: {r_dir}")
+        print(f"[Error] Run directory does not exist: {r_dir}")
         print("Please check that your Google Drive is mounted (`from google.colab import drive; drive.mount('/content/drive')`) and path is correct.")
         return
 
     items_by_set, results_json, train_log = load_data(r_dir)
     if not items_by_set and not results_json:
-        print(f"❌ Error: No prediction records or results found in {r_dir}.")
+        print(f"[Error] No prediction records or results found in {r_dir}.")
         print("Expected 'predictions.csv' or 'results.json'. Please verify the folder contains your finished run artifacts.")
         return
 
@@ -1689,12 +1689,12 @@ def render_in_colab(run_dir: str = "/content/drive/MyDrive/qwerysmith-1.1", pape
     generate_report(analysis, p_dir)
 
     print("\n" + "=" * 70)
-    print("🎨 DISPLAYING PUBLICATION FIGURES & MATRICES")
+    print("[Figures] DISPLAYING PUBLICATION FIGURES & MATRICES")
     print("=" * 70)
 
     fig_dir = p_dir / "figures"
     for fpath in sorted(list(fig_dir.glob("*.png"))):
-        display(Markdown(f"### 📊 {fpath.stem.replace('_', ' ').title()}"))
+        display(Markdown(f"### {fpath.stem.replace('_', ' ').title()}"))
         display(Image(filename=str(fpath), width=800))
 
     report_path = p_dir / "RESEARCH_PAPER_REPORT.md"
@@ -1750,7 +1750,7 @@ def create_overleaf_package(
                 url = "https://raw.githubusercontent.com/Cyrax321/QwerySmith-1.0/main/paper/main.tex"
                 urllib.request.urlretrieve(url, str(tex_path))
             except Exception as e:
-                print(f"  ⚠️ Could not fetch main.tex: {e}")
+                print(f"  [Warning] Could not fetch main.tex: {e}")
 
     if not bib_path.exists():
         for cand in [
@@ -1767,11 +1767,11 @@ def create_overleaf_package(
                 url = "https://raw.githubusercontent.com/Cyrax321/QwerySmith-1.0/main/paper/references.bib"
                 urllib.request.urlretrieve(url, str(bib_path))
             except Exception as e:
-                print(f"  ⚠️ Could not fetch references.bib: {e}")
+                print(f"  [Warning] Could not fetch references.bib: {e}")
 
     zip_out = Path(output_zip).resolve()
     print(f"\n" + "=" * 70)
-    print(f"📦 PACKAGING OVERLEAF RESEARCH PAPER PROJECT -> {zip_out.name}")
+    print(f"[Packaging] OVERLEAF RESEARCH PAPER PROJECT -> {zip_out.name}")
     print("=" * 70)
 
     file_count = 0
@@ -1779,14 +1779,14 @@ def create_overleaf_package(
         if tex_path.exists():
             zf.write(tex_path, arcname="main.tex")
             file_count += 1
-            print("  ✅ [Root] main.tex")
+            print("  [OK] [Root] main.tex")
         else:
-            print("  ⚠️ Warning: main.tex not found!")
+            print("  [Warning] Warning: main.tex not found!")
 
         if bib_path.exists():
             zf.write(bib_path, arcname="references.bib")
             file_count += 1
-            print("  ✅ [Root] references.bib")
+            print("  [OK] [Root] references.bib")
 
         fig_dir = p_dir / "figures"
         if fig_dir.exists():
@@ -1794,7 +1794,7 @@ def create_overleaf_package(
             for f in figs:
                 zf.write(f, arcname=f"figures/{f.name}")
                 file_count += 1
-            print(f"  ✅ [figures/] Added {len(figs)} authentic publication figures")
+            print(f"  [OK] [figures/] Added {len(figs)} authentic publication figures")
 
         tab_dir = p_dir / "tables"
         if tab_dir.exists():
@@ -1802,16 +1802,16 @@ def create_overleaf_package(
             for t in tabs:
                 zf.write(t, arcname=f"tables/{t.name}")
                 file_count += 1
-            print(f"  ✅ [tables/] Added {len(tabs)} LaTeX table files")
+            print(f"  [OK] [tables/] Added {len(tabs)} LaTeX table files")
 
         rep_path = p_dir / "RESEARCH_PAPER_REPORT.md"
         if rep_path.exists():
             zf.write(rep_path, arcname="RESEARCH_PAPER_REPORT.md")
             file_count += 1
-            print("  ✅ [Root] RESEARCH_PAPER_REPORT.md")
+            print("  [OK] [Root] RESEARCH_PAPER_REPORT.md")
 
     zip_size_mb = zip_out.stat().st_size / (1024 * 1024)
-    print(f"\n🎉 Package created: {zip_out.name} ({file_count} files, {zip_size_mb:.2f} MB)")
+    print(f"\n[Done] Package created: {zip_out.name} ({file_count} files, {zip_size_mb:.2f} MB)")
 
     # Save to Google Drive if mounted
     drive_dir = Path("/content/drive/MyDrive")
@@ -1819,20 +1819,20 @@ def create_overleaf_package(
         drive_dest = drive_dir / zip_out.name
         try:
             shutil.copy(zip_out, drive_dest)
-            print(f"💾 Saved permanent backup to Google Drive: {drive_dest}")
+            print(f"[Backup] Saved permanent backup to Google Drive: {drive_dest}")
         except Exception as e:
-            print(f"  ⚠️ Drive backup note: {e}")
+            print(f"  [Warning] Drive backup note: {e}")
 
     # Initiate browser download in Colab
     if download_in_colab and "google.colab" in sys.modules:
         try:
             from google.colab import files
-            print("🚀 Triggering browser download...")
+            print("[Download] Triggering browser download...")
             files.download(str(zip_out))
         except Exception as e:
             print(f"  ℹ️ Browser download note: {e}")
 
-    print("\n📋 Overleaf Setup Instructions:")
+    print("\nOverleaf Setup Instructions:")
     print("  1. Open https://www.overleaf.com and log in")
     print("  2. Click 'New Project' -> 'Upload Project'")
     print(f"  3. Drop or select '{zip_out.name}'")
@@ -1858,7 +1858,7 @@ def main():
 
     run_dir = Path(args.out).resolve()
     if not run_dir.exists():
-        print(f"❌ Error: Specified run directory does not exist: {run_dir}")
+        print(f"[Error] Specified run directory does not exist: {run_dir}")
         print("Please provide a valid directory containing finished run artifacts (predictions.csv / results.json).")
         sys.exit(1)
 
@@ -1867,7 +1867,7 @@ def main():
 
     items_by_set, results_json, train_log = load_data(run_dir)
     if not items_by_set and not results_json:
-        print(f"❌ Error: No evaluation artifacts ('predictions.csv' or 'results.json') found in {run_dir}.")
+        print(f"[Error] No evaluation artifacts ('predictions.csv' or 'results.json') found in {run_dir}.")
         print("Strict policy: Fake/synthetic figures will not be generated. Please point --out to your finished run folder.")
         sys.exit(1)
 
@@ -1879,8 +1879,8 @@ def main():
 
     (paper_dir / "analysis_summary.json").write_text(json.dumps(analysis, indent=2, default=str), encoding="utf-8")
 
-    print(f"\n🎉 ALL AUTHENTIC EVALUATION FIGURES & TABLES COMPLETED!")
-    print(f"📦 Files saved in: {paper_dir}")
+    print(f"\n[Done] ALL AUTHENTIC EVALUATION FIGURES & TABLES COMPLETED!")
+    print(f"[Saved] Files saved in: {paper_dir}")
 
     if args.zip:
         create_overleaf_package(paper_dir=paper_dir, output_zip=paper_dir.parent / "qwerysmith_paper_overleaf.zip", download_in_colab=False)

@@ -605,12 +605,12 @@ class AgentMemoryEngine:
 # 4. CLI / Demonstration Entrypoint
 # --------------------------------------------------------------------------
 if __name__ == "__main__":
-    print("⚡ Testing QwerySmith AgentMemoryEngine...")
+    print("Testing QwerySmith AgentMemoryEngine...")
     mem = AgentMemoryEngine(":memory:")
 
     # Benchmark Latency
     bench = mem.benchmark_latency(n_queries=150)
-    print("\n📊 Latency Benchmark Results:")
+    print("\nLatency Benchmark Results:")
     print(f"  • Read P50 Latency  : {bench['read_p50_ms'] * 1000:.1f} µs ({bench['read_p50_ms']:.3f} ms)")
     print(f"  • Read P95 Latency  : {bench['read_p95_ms'] * 1000:.1f} µs ({bench['read_p95_ms']:.3f} ms)")
     print(f"  • Write P50 Latency : {bench['write_p50_ms'] * 1000:.1f} µs ({bench['write_p50_ms']:.3f} ms)")
@@ -630,7 +630,7 @@ if __name__ == "__main__":
 
     # Simulate Turn 2 (Follow-up)
     res = mem.recall(session_id=session_id, db_name=db_name, question="And how much did they spend in total?")
-    print(f"\n🧠 Turn 2 Recall (took {res.retrieval_ms:.3f} ms):")
+    print(f"\nTurn 2 Recall (took {res.retrieval_ms:.3f} ms):")
     print(f"  • Follow-up detected: {res.is_followup}")
     print(f"  • Prompt Context Injected:\n{res.prompt_context}")
 

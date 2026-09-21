@@ -55,7 +55,7 @@ def init_sample_db(db_path: str | Path = "company_store.db") -> Path:
     if path.exists() and path.stat().st_size > 1000:
         return path
 
-    print(f"📦 Initializing enterprise demo database: {path.name} ...")
+    print(f"[Init] Initializing enterprise demo database: {path.name} ...")
     conn = sqlite3.connect(str(path))
     cur = conn.cursor()
 
@@ -192,7 +192,7 @@ def init_sample_db(db_path: str | Path = "company_store.db") -> Path:
 
     conn.commit()
     conn.close()
-    print(f"✅ Demo database '{path.name}' created with 5 tables and populated data.\n")
+    print(f"[OK] Demo database '{path.name}' created with 5 tables and populated data.\n")
     return path
 
 
@@ -379,7 +379,7 @@ class QwerySmithAgent:
 
     def _load_model(self):
         """Loads model into GPU VRAM using Unsloth if present, or Hugging Face PEFT."""
-        print(f"📦 Loading QwerySmith from: {self.model_path}")
+        print(f"[Loading] QwerySmith from: {self.model_path}")
         t0 = time.time()
         try:
             from unsloth import FastLanguageModel
@@ -389,9 +389,9 @@ class QwerySmithAgent:
                 load_in_4bit=True,
             )
             FastLanguageModel.for_inference(self.model)
-            print(f"⚡ FastLanguageModel loaded in {time.time() - t0:.1f}s (4-bit optimized).")
+            print(f"[Model] FastLanguageModel loaded in {time.time() - t0:.1f}s (4-bit optimized).")
         except Exception as e:
-            print(f"  ⚠️ Unsloth fast loader fallback ({e}). Using standard Transformers...")
+            print(f"  [Warning] Unsloth fast loader fallback ({e}). Using standard Transformers...")
             import torch
             from transformers import AutoModelForCausalLM, AutoTokenizer
             self.tok = AutoTokenizer.from_pretrained(self.model_path)
@@ -401,7 +401,7 @@ class QwerySmithAgent:
                 device_map="auto",
             )
             self.model.eval()
-            print(f"⚡ Transformers model loaded in {time.time() - t0:.1f}s.")
+            print(f"[Model] Transformers model loaded in {time.time() - t0:.1f}s.")
 
     @contextmanager
     def disable_adapter_ctx(self):
@@ -644,8 +644,8 @@ class QwerySmithAgent:
         except Exception as err:
             conn.close()
             if auto_repair:
-                print(f"  ⚠️ Initial SQL failed: {err}")
-                print("  🔄 Engaging self-healing reflection engine...")
+                print(f"  [Warning] Initial SQL failed: {err}")
+                print("  [Reflect] Engaging self-healing reflection engine...")
                 repaired_sql = self.generate_sql(
                     schema,
                     question,
@@ -734,12 +734,12 @@ class QwerySmithAgent:
         session_id = f"session_{int(time.time())}"
 
         print("\n" + "=" * 72)
-        print("💬 QWERYSMITH 1.1 INTERACTIVE DATABASE & CONVERSATIONAL AGENT")
+        print("QWERYSMITH 1.1 INTERACTIVE DATABASE & CONVERSATIONAL AGENT")
         print("=" * 72)
-        print(f"📁 Connected Database : {db_file.name}")
-        print(f"📊 Available Tables   : {', '.join(tables)}")
-        print(f"🤖 Loaded Model       : {self.model_path}")
-        print("💡 Special Commands   : :schema, :tables, :sample <table>, :memory, :clearmem, :db <path>, :exit")
+        print(f"Connected Database : {db_file.name}")
+        print(f"Available Tables   : {', '.join(tables)}")
+        print(f"Loaded Model       : {self.model_path}")
+        print("Special Commands   : :schema, :tables, :sample <table>, :memory, :clearmem, :db <path>, :exit")
         print("-" * 72)
         print("You can chat normally or ask live database queries:")
         print("  • 'Hey! How are you doing today?'")
@@ -752,9 +752,9 @@ class QwerySmithAgent:
         last_interaction = None
         while True:
             try:
-                user_input = input("💬 You: ").strip()
+                user_input = input("You: ").strip()
             except (KeyboardInterrupt, EOFError):
-                print("\n👋 Goodbye!")
+                print("\nGoodbye!")
                 break
 
             if not user_input:
@@ -762,12 +762,12 @@ class QwerySmithAgent:
 
             # Command Handlers
             if user_input.lower() in [":exit", ":quit", "exit", "quit", ":q"]:
-                print("👋 Session ended. Happy querying!")
+                print("Session ended. Happy querying!")
                 break
 
             if user_input.lower() in [":memory", ":mem"]:
                 st = self.memory.stats()
-                print("\n🧠 PERSISTENT AGENTIC MEMORY STATUS:")
+                print("\nPERSISTENT AGENTIC MEMORY STATUS:")
                 print("-" * 50)
                 print(f"  • Active Session ID       : {session_id}")
                 print(f"  • Total Recorded Turns    : {st['total_turns']}")
@@ -784,12 +784,12 @@ class QwerySmithAgent:
 
             if user_input.lower() in [":clearmem", ":clear_memory"]:
                 cleared = self.memory.clear_session(session_id)
-                print(f"🧹 Cleared {cleared} turns from active session memory.\n")
+                print(f"Cleared {cleared} turns from active session memory.\n")
                 continue
 
             if user_input.lower() == ":schema":
                 conn = sqlite3.connect(str(db_file))
-                print("\n📋 DATABASE SCHEMA DDL:")
+                print("\nDATABASE SCHEMA DDL:")
                 print("-" * 50)
                 print(self.get_schema(conn))
                 print("-" * 50 + "\n")
@@ -799,7 +799,7 @@ class QwerySmithAgent:
             if user_input.lower() == ":tables":
                 conn = sqlite3.connect(str(db_file))
                 cur = conn.cursor()
-                print("\n📊 DATABASE SUMMARY:")
+                print("\nDATABASE SUMMARY:")
                 for t in tables:
                     cur.execute(f"SELECT count(*) FROM {t};")
                     cnt = cur.fetchone()[0]
@@ -820,7 +820,7 @@ class QwerySmithAgent:
                     cur.execute(f"SELECT * FROM {tname} LIMIT 3;")
                     cols = [d[0] for d in cur.description]
                     s_rows = cur.fetchall()
-                    print(f"\n🔍 Sample from '{tname}':")
+                    print(f"\nSample from '{tname}':")
                     print(format_table(cols, s_rows))
                     print()
                 except Exception as e:
@@ -835,7 +835,7 @@ class QwerySmithAgent:
                     continue
                 new_db = Path(parts[1]).resolve()
                 if not new_db.exists():
-                    print(f"❌ Error: Database file not found: {new_db}")
+                    print(f"[Error] Database file not found: {new_db}")
                     continue
                 db_file = new_db
                 conn = sqlite3.connect(str(db_file))
@@ -843,7 +843,7 @@ class QwerySmithAgent:
                 cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")
                 tables = [r[0] for r in cur.fetchall()]
                 conn.close()
-                print(f"✅ Switched active database to: {db_file.name} ({len(tables)} tables)")
+                print(f"[OK] Switched active database to: {db_file.name} ({len(tables)} tables)")
                 continue
 
             # Classify Intent
@@ -852,7 +852,7 @@ class QwerySmithAgent:
             # Route 1: Real-time System Queries
             if intent == "REALTIME_SYS":
                 now = datetime.now()
-                print(f"\n🕒 Real-Time System Status:")
+                print(f"\nReal-Time System Status:")
                 print(f"  • Current Date & Time : {now.strftime('%A, %B %d, %Y - %I:%M:%S %p')}")
                 print(f"  • Connected Database  : {db_file.name} ({len(tables)} tables active)\n")
                 continue
@@ -861,7 +861,7 @@ class QwerySmithAgent:
             if intent == "DB_META":
                 conn = sqlite3.connect(str(db_file))
                 cur = conn.cursor()
-                print(f"\n📊 Live Database Overview ({db_file.name}):")
+                print(f"\nLive Database Overview ({db_file.name}):")
                 for t in tables:
                     cur.execute(f"SELECT count(*) FROM {t};")
                     cnt = cur.fetchone()[0]
@@ -872,42 +872,42 @@ class QwerySmithAgent:
 
             # Route 3: General Chit-Chat / Concepts / Reasoning
             if intent == "CONVERSATIONAL":
-                print("\n💬 Formulating response...")
+                print("\nFormulating response...")
                 reply = self.chat_conversational(user_input, tables, last_context=last_interaction)
-                print(f"\n🤖 QwerySmith:\n  {reply}\n")
+                print(f"\nQwerySmith:\n  {reply}\n")
                 continue
 
             # Route 4: Real-time Database Query & Natural Language Synthesis
             # Fast memory recall preview check
             mem_preview = self.memory.recall(session_id, db_file.name, user_input)
             if mem_preview.is_followup and mem_preview.previous_turn:
-                print(f"\n🧠 \033[1;36mMemory: Follow-up detected. Injected prior turn context ({mem_preview.retrieval_ms:.2f}ms)\033[0m")
+                print(f"\n \033[1;36mMemory: Follow-up detected. Injected prior turn context ({mem_preview.retrieval_ms:.2f}ms)\033[0m")
             elif mem_preview.exemplars:
-                print(f"\n🧠 \033[1;36mMemory: Recalled {len(mem_preview.exemplars)} verified schema exemplar(s) ({mem_preview.retrieval_ms:.2f}ms)\033[0m")
+                print(f"\n \033[1;36mMemory: Recalled {len(mem_preview.exemplars)} verified schema exemplar(s) ({mem_preview.retrieval_ms:.2f}ms)\033[0m")
 
-            print("\n⚡ Synthesizing SQL query...")
+            print("\nSynthesizing SQL query...")
             res = self.query(db_file, user_input, session_id=session_id)
             last_interaction = res
 
             if res["success"]:
                 # Print natural human explanation first
-                print(f"\n🤖 QwerySmith:")
+                print(f"\nQwerySmith:")
                 print(f"  {res.get('human_answer', '')}\n")
 
                 # Print structured data table
                 cols = res["columns"]
                 rows = res["rows"]
-                print(f"📊 Live Data ({len(rows)} rows, {res.get('latency_gen_ms', 0):.0f}ms gen, {res.get('memory_latency_ms', 0):.2f}ms mem):")
+                print(f"Live Data ({len(rows)} rows, {res.get('latency_gen_ms', 0):.0f}ms gen, {res.get('memory_latency_ms', 0):.2f}ms mem):")
                 print(format_table(cols, rows))
 
                 # Print underlying SQL
-                print(f"\n🔍 Generated SQL:")
+                print(f"\nGenerated SQL:")
                 print(f"   \033[1;32m{res['sql']}\033[0m")
                 if "repaired_from" in res:
                     print(f"   \033[1;33m(Self-healed from: {res['repaired_from']})\033[0m")
                 print()
             else:
-                print(f"\n❌ Execution Failed: {res.get('error', 'Unknown error')}")
+                print(f"\n[Failed] Execution Failed: {res.get('error', 'Unknown error')}")
                 print(f"   Attempted SQL: {res.get('sql', 'N/A')}")
                 if "attempted_original" in res:
                     print(f"   Initial SQL:   {res.get('attempted_original')}")
