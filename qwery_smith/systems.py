@@ -49,9 +49,14 @@ def openai_compatible_call(
     model_id: str,
     api_key_env: Optional[str] = None,
     decoding: dict[str, Any] | None = None,
-    seed: int = 42,
-) -> Callable[[str], str]:
-    """Driver for vLLM/SGLang/Ollama/frontier APIs — all OpenAI-compatible."""
+) -> Callable[[str, int], str]:
+    """Driver for vLLM/SGLang/Ollama/frontier APIs — all OpenAI-compatible.
+
+    The callable takes (prompt, seed): the runner passes a distinct seed per
+    consistency run (plan §0 — 5 samples must actually vary) and a fixed
+    seed for the headline run.
+    """
+    import json
     import os
     import urllib.request
 
@@ -62,7 +67,7 @@ def openai_compatible_call(
     if decoding:
         dec.update(decoding)
 
-    def call(prompt: str) -> str:
+    def call(prompt: str, seed: int = 42) -> str:
         payload = {
             "model": model_id,
             "messages": [{"role": "user", "content": prompt}],
@@ -82,24 +87,26 @@ def openai_compatible_call(
                    if api_key_env and os.environ.get(api_key_env) else {}),
             },
         )
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with urllib.request.urlopen(req, timeout=180) as resp:
             body = json.loads(resp.read())
         return body["choices"][0]["message"]["content"]
 
     return call
 
 
-def build_system_fn(spec: SystemConfig, seed: int = 42) -> Callable[[str], str]:
+def build_system_fn(spec: SystemConfig) -> Callable[[str, int], str]:
     if spec.driver == "openai_compatible":
         if not spec.base_url or not spec.model_id:
             raise ConfigError(f"system {spec.name}: openai_compatible needs base_url + model_id")
         return openai_compatible_call(spec.base_url, spec.model_id, spec.api_key_env,
-                                      spec.decoding, seed=seed)
+                                      spec.decoding)
     if spec.driver == "script":
-        # external script reads prompt on stdin, writes output to stdout
+        # external script reads prompt on stdin, writes output to stdout.
+        # Deterministic by construction: same prompt -> same output, so the
+        # runner's distinct seeds are irrelevant here (flip=0 is honest).
         if not spec.model_id:
             raise ConfigError(f"system {spec.name}: script driver needs model_id = command")
-        def call(prompt: str) -> str:
+        def call(prompt: str, seed: int = 42) -> str:
             import subprocess
 
             out = subprocess.run(

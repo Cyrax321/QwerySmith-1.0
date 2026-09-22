@@ -9,7 +9,7 @@ import typer
 
 from . import __version__
 from .config import DATASETS_ROOT, DatasetConfig
-from .exceptions import HarnessError, StageNotImplementedError
+from .exceptions import HarnessError
 
 app = typer.Typer(add_completion=False, help="QwerySmith v3.0 harness")
 
@@ -585,7 +585,6 @@ def publish(
     cfg = _load(dataset, root)
     import json
     import os
-    import shutil
 
     base = root or Path.cwd()
     train_dir = train_run

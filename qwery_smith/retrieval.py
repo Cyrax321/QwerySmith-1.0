@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .adapters.base import DatabaseAdapter
-from .config import DatasetConfig, HoldoutConfig
 from .exceptions import HarnessError
 from .schema_loader import Schema, TableSchema
 

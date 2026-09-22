@@ -31,13 +31,13 @@ def test_full_eval_loop(toy_db, tmp_path):
     q1 = _make_question(toy_db, "q1", "SELECT order_id, status FROM orders WHERE order_id = 'o01'")
     q2 = _make_question(toy_db, "q2", "SELECT COUNT(*) FROM orders WHERE status = 'shipped'")
 
-    def perfect_model(prompt: str) -> str:
+    def perfect_model(prompt: str, seed: int = 0) -> str:
         # a "system" that reads the question and returns contract-perfect output
         if "q1" in prompt:
             return "SQL:\nSELECT order_id, status FROM orders WHERE order_id = 'o01'\nANSWER:\nOrder o01 is shipped [orders:o01]"
         return "SQL:\nSELECT COUNT(*) FROM orders WHERE status = 'shipped'\nANSWER:\n2 shipped orders [orders:o03] [orders:o11]"
 
-    def broken_model(prompt: str) -> str:
+    def broken_model(prompt: str, seed: int = 0) -> str:
         return "REFUSAL:\nNothing found."
 
     packs = {}

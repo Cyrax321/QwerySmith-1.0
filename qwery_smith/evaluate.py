@@ -14,9 +14,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from .config import DatasetConfig
-from .questions import Question, QuestionSet
-from .retrieval import EvidencePack, load_pack
+from .questions import Question
+from .retrieval import EvidencePack
 from .scoring import ConsistencyBlock, ScoredResult, evaluate_one
 from .triples import render_prompt
 from .adapters.base import DatabaseAdapter
@@ -79,36 +78,42 @@ def run_system(
     timeout_sec: float = 30.0,
     consistency_seeds: Optional[list[int]] = None,
 ) -> SystemRun:
-    """Run headline (1 deterministic-seed call) + consistency (5 sampled calls)."""
+    """Run headline (1 deterministic-seed call) + consistency (5 sampled calls).
+
+    Consistency runs pass DISTINCT seeds to the driver (plan §0) — otherwise
+    a pinned-seed API returns identical outputs and flip rate is fake 0.
+    """
     run = SystemRun(spec=spec)
 
     for q in questions:
         pack = packs[q.id]
         prompt = render_prompt(schema_ddl, q.question, pack.render_evidence())
+        q_index = questions.index(q)
+        n_runs = getattr(spec, "n_consistency_runs", 5)
+        seeds = consistency_seeds or [1000 + q_index * 10 + k for k in range(n_runs)]
+        headline_seed = seeds[0] - 1  # distinct from every consistency seed
 
         # headline
         t0 = time.perf_counter()
-        raw = call(prompt)
+        raw = call(prompt, headline_seed)
         lat = (time.perf_counter() - t0) * 1000
         scored = evaluate_one(q, raw, pack, adapter, timeout_sec=timeout_sec, latency_ms=lat)
         run.headline.append(scored)
         run.raw_outputs.append({
-            "question_id": q.id, "kind": "headline", "raw": raw,
+            "question_id": q.id, "kind": "headline", "seed": headline_seed, "raw": raw,
             "scored": scored.to_json(),
         })
 
-        # consistency block
-        n_runs = getattr(spec, "n_consistency_runs", 5)
-        seeds = consistency_seeds or [1000 + i for i in range(n_runs)]
+        # consistency block: seeds actually vary per run
         block = ConsistencyBlock(question_id=q.id, headline=scored.correct)
-        for _k in range(n_runs):
+        for k, seed_k in enumerate(seeds[:n_runs]):
             t0 = time.perf_counter()
-            raw_k = call(prompt)
+            raw_k = call(prompt, seed_k)
             lat_k = (time.perf_counter() - t0) * 1000
             scored_k = evaluate_one(q, raw_k, pack, adapter, timeout_sec=timeout_sec, latency_ms=lat_k)
             block.runs.append(scored_k.correct)
             run.raw_outputs.append({
-                "question_id": q.id, "kind": "consistency", "raw": raw_k,
+                "question_id": q.id, "kind": "consistency", "seed": seed_k, "raw": raw_k,
                 "scored": scored_k.to_json(),
             })
         run.consistency[q.id] = block
