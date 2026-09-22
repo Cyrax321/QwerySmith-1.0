@@ -29,17 +29,17 @@ datasource:
   extra:
     columns:
       online_retail:
-        InvoiceNo: TEXT
+        Invoice: TEXT
         StockCode: TEXT
         Description: TEXT
         Quantity: INTEGER
         InvoiceDate: TIMESTAMP
-        UnitPrice: REAL
-        CustomerID: TEXT        # UCI floats them ("17850.0"); TEXT keeps fidelity
+        Price: REAL
+        Customer ID: TEXT          # UCI header has a space; floats in source ("17850.0"), TEXT keeps fidelity
         Country: TEXT
 
     primary_keys:
-      online_retail: [InvoiceNo, StockCode]   # best-effort; invoice lines may repeat
+      online_retail: [Invoice, StockCode]   # best-effort; invoice lines may repeat
 
     foreign_keys: []           # single flat table - no FK graph (the point)
 
