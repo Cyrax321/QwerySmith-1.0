@@ -168,6 +168,10 @@ def validate_question_set(
 
 # -- ingest ---------------------------------------------------------------
 
+from pathlib import Path
+
+import csv as _csv
+
 
 def _columns_for(cfg, table: str, csv_path: Path) -> dict[str, str]:
     """Explicit types from config; header-inferred TEXT as fallback."""
@@ -183,9 +187,6 @@ def ingest_dataset(cfg, adapter) -> dict[str, int]:
 
     Returns {table: row_count}. PKs/FKs are dataset config, not code.
     """
-    import csv as _csv
-    from pathlib import Path
-
     counts: dict[str, int] = {}
     for csv_stem, table in cfg.datasource.table_map.items():
         if isinstance(table, list):
