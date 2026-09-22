@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-from ..exceptions import QueryTimeoutError, UnsafeSQLError
+from ..exceptions import UnsafeSQLError
 from .guard import assert_safe_select
 
 

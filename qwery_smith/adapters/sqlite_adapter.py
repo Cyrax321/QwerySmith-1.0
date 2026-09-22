@@ -9,7 +9,7 @@ import csv
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from ..exceptions import HarnessError
 from .base import DatabaseAdapter
