@@ -102,6 +102,21 @@ a "system" is just a callable from a prompt to raw output.
 - `datasets/online_retail_ii/` — UCI Online Retail II, single flat table,
   grouped two-sheet load. Same pipeline, config changes only.
 
+## Adding a dataset (config only — no code changes)
+
+1. `datasets/<name>/config.yaml` — name, licence, source URL, holdout rule
+   (`column: "table.date_col"`, `months: N`), datasource block
+   (dialect, URI, csv_dir, `table_map` — use a **list value** to append
+   multiple CSVs into one table), explicit column types, PKs/FKs,
+   authoring keywords.
+2. Drop raw CSVs in `datasets/<name>/raw/`.
+3. `author <name> --n 30` → review → `questions_v1.jsonl`.
+4. Copy `datasets/olist/systems.yaml`, point the endpoints at your servers.
+5. Run the pipeline; `test_reusability.py` is the template for proving it.
+
+If any step needs a `qwery_smith/` code edit, that's a harness bug — fix it
+in the harness, never in the config.
+
 ## Development
 
 ```bash
