@@ -55,6 +55,21 @@ uv run python -m qwery_smith report   olist          # results table + gate + fa
 uv run python -m qwery_smith publish  olist --hf-user <you>   # adapters -> Hugging Face, full cards
 ```
 
+## Metrics (what the numbers mean)
+
+| Metric | Definition |
+|---|---|
+| **EX (execution accuracy)** | % of scorable questions whose generated SQL runs in the sandbox and returns the expected row set under canonicalization. **Uncited or invalidly-cited answers count as wrong, even if the rows are right.** |
+| **Scorable N** | Held-out questions minus any whose gold SQL fails validation (each exclusion logged; target zero). |
+| **Agreement** | Per question: share of the 5 consistency runs matching the majority correctness label. |
+| **Flip rate** | Per question: fraction of adjacent run-pairs whose correctness changes. Gate requires the candidate be no worse than the frontier here. |
+| **McNemar (exact)** | Paired test on discordant question pairs vs baseline and frontier; row 2 represented by its median-EX seed, per-seed p-values also reported. |
+| **Refusal rate** | Share of questions answered with `REFUSAL:` — refusal on an answerable question scores wrong, but the rate itself is reported as calibrated-refusal behaviour. |
+
+Canonicalization (§6.4): rows compared as sorted bags, column order by name,
+floats to 2dp, NFC + casefold + whitespace-collapsed strings, NULL distinct
+from empty; row order matters only for `ORDER BY ... LIMIT` gold.
+
 ## What the harness enforces (not asserts)
 
 | Guarantee | Mechanism |
