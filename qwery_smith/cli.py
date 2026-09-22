@@ -40,7 +40,7 @@ def _load(dataset: str, root: Optional[Path] = None) -> DatasetConfig:
         return DatasetConfig.load(dataset, root=root)
     except HarnessError as e:
         typer.secho(str(e), fg=typer.colors.RED)
-        raise typer.Exit(2)
+        raise typer.Exit(2) from e
 
 
 def _uri_for_stage(cfg: DatasetConfig, stage: str) -> str:

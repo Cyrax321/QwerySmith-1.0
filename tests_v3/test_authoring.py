@@ -65,7 +65,7 @@ def test_author_cli_mechanical_splits(toy_db, tmp_path, monkeypatch):
 
     shutil.copy(toy_db.db_path, ds / "prepared.db")
     (ds / "config.yaml").write_text(
-        f"""
+        """
 name: toy
 version: 1.0.0
 license: "CC0"
@@ -80,7 +80,7 @@ datasource:
   uri: "sqlite:///prepared.db"
   csv_dir: "raw"
   csv_pattern: "*.csv"
-  table_map: {{}}
+  table_map: {}
 """,
         encoding="utf-8",
     )

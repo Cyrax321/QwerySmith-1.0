@@ -43,7 +43,7 @@ def _loss_curve_figure(log_history: list[dict], out_path: Path, seed: int) -> bo
     ax1.set_xlabel("step"); ax1.set_ylabel("train loss"); ax1.set_title(f"seed {seed}: loss")
     ax1.grid(alpha=0.3)
     if lrs:
-        ax2.plot([s for s, e in zip(steps, log_history) if "learning_rate" in e], lrs, color="#dc2626", lw=1.5)
+        ax2.plot([s for s, e in zip(steps, log_history, strict=False) if "learning_rate" in e], lrs, color="#dc2626", lw=1.5)
         ax2.set_xlabel("step"); ax2.set_ylabel("lr"); ax2.set_title("cosine schedule")
         ax2.grid(alpha=0.3)
     fig.tight_layout()

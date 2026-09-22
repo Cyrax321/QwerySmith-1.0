@@ -116,10 +116,6 @@ def gen_aggregate(facts: SchemaFacts, adapter, cfg, rng) -> Optional[Candidate]:
         cat = rng.choice(facts.categorical_cols[tname])
         measure = facts.numeric_cols.get(tname) or [None]
         agg_col = rng.choice(measure) if measure != [None] else None
-        # prefer an FK back to a dated parent for time filtering
-        for (tb, col, rt, rc) in facts.fk_edges:
-            if tb == tname and rt in facts.date_cols:
-                break
         if agg_col:
             sql = (
                 f'SELECT "{cat}", SUM("{agg_col}") AS total_{agg_col} FROM "{tname}" '

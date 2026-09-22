@@ -24,3 +24,12 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["qwery_smith*"]
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+select = ["F", "E9", "B", "PLE"]
+ignore = [
+    "B008",  # typer.Option in defaults is the standard Typer CLI idiom
+]

@@ -1,7 +1,6 @@
 """3-seed protocol tests: aggregation, multi-run report merge, train prep."""
 
 import json
-from pathlib import Path
 
 from typer.testing import CliRunner
 

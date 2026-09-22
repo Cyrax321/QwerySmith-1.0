@@ -137,7 +137,7 @@ def mcnemar_from_results(a: list[ScoredResult], b_: list[ScoredResult]) -> dict[
     assert len(a) == len(b_)
     b_only = 0  # system A correct, B wrong
     c_only = 0  # A wrong, B correct
-    for ra, rb in zip(a, b_):
+    for ra, rb in zip(a, b_, strict=True):
         if ra.correct != rb.correct:
             if ra.correct:
                 b_only += 1

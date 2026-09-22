@@ -1,6 +1,5 @@
 """Schema loader + profiler + cutoff tests."""
 
-import sqlite3
 
 from qwery_smith.config import HoldoutConfig
 from qwery_smith.profiler import compute_holdout_cutoff, profile_database

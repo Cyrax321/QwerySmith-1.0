@@ -191,7 +191,7 @@ def build_triples(
             rng.shuffle(evidence)
             ev_text = "\n".join(
                 f"[{r['table']}:{r['row_id']}] " + " | ".join(
-                    f"{c}: {v}" for c, v in zip(r["columns"], r["values"]) if v not in (None, "")
+                    f"{c}: {v}" for c, v in zip(r["columns"], r["values"], strict=False) if v not in (None, "")
                 )
                 for r in evidence
             )

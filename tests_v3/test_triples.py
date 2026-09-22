@@ -4,7 +4,7 @@ import json
 import random
 
 from qwery_smith.questions import ExpectedRows, Question, QuestionSet
-from qwery_smith.retrieval import build_index, load_pack
+from qwery_smith.retrieval import build_index
 from qwery_smith.schema_loader import load_schema
 from qwery_smith.triples import (
     build_triples,
@@ -110,7 +110,7 @@ def test_refusal_triple_shape(toy_db):
                 assert t.target.startswith("REFUSAL:")
                 assert "SQL:" not in t.target
                 return
-    assert False, "no refusal triple sampled in 40 draws"
+    raise AssertionError("no refusal triple sampled in 40 draws")
 
 
 def test_grounding_target_has_sql_and_citation(toy_db):

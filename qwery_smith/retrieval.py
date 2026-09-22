@@ -45,7 +45,7 @@ class IndexDoc:
     tokens: tuple[str, ...] = field(default_factory=tuple)
 
     def render(self) -> str:
-        cells = " | ".join(f"{c}: {v}" for c, v in zip(self.columns, self.values) if v not in (None, ""))
+        cells = " | ".join(f"{c}: {v}" for c, v in zip(self.columns, self.values, strict=False) if v not in (None, ""))
         return f"[{self.table}:{self.row_id}] {cells}"
 
 
@@ -151,7 +151,7 @@ class EvidencePack:
         lines = []
         for r in self.rows:
             cells = " | ".join(
-                f"{c}: {v}" for c, v in zip(r["columns"], r["values"]) if v not in (None, "")
+                f"{c}: {v}" for c, v in zip(r["columns"], r["values"], strict=False) if v not in (None, "")
             )
             lines.append(f"[{r['table']}:{r['row_id']}] {cells}")
         return "\n".join(lines)

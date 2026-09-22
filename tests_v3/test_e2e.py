@@ -1,12 +1,10 @@
 """End-to-end: runner + gate + report + failure folders with fake systems."""
 
-import json
 
 from qwery_smith.evaluate import SystemSpec, run_system, write_run
-from qwery_smith.questions import ExpectedRows, Question, QuestionSet, canonical_rows_hash
+from qwery_smith.questions import ExpectedRows, Question, canonical_rows_hash
 from qwery_smith.retrieval import EvidencePack, build_index, build_pack
 from qwery_smith.report import evaluate_gate, render_report, write_failure_folders
-from qwery_smith.scoring import ScoredResult
 from qwery_smith.schema_loader import load_schema
 
 PACK = EvidencePack(

@@ -1,6 +1,5 @@
 """Validator + holdout-leak tests (plan §4.4) — the enforcement machinery."""
 
-from pathlib import Path
 
 from qwery_smith.config import HoldoutConfig
 from qwery_smith.questions import ExpectedRows, Question, QuestionSet, canonical_rows_hash
@@ -12,7 +11,7 @@ CUTOFF = "2018-03-01"
 
 
 def _mk_q(qid, sql, split="train_ok"):
-    rows, cols, _ = None, None, None
+    _rows, _cols, _ = None, None, None
     return qid, sql, split
 
 

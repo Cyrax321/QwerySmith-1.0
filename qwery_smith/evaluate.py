@@ -106,7 +106,7 @@ def run_system(
 
         # consistency block: seeds actually vary per run
         block = ConsistencyBlock(question_id=q.id, headline=scored.correct)
-        for k, seed_k in enumerate(seeds[:n_runs]):
+        for seed_k in seeds[:n_runs]:
             t0 = time.perf_counter()
             raw_k = call(prompt, seed_k)
             lat_k = (time.perf_counter() - t0) * 1000

@@ -1,6 +1,5 @@
 """Coverage: real paths not previously exercised."""
 
-import json
 from pathlib import Path
 
 import pytest

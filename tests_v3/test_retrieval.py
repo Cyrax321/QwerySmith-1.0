@@ -53,7 +53,7 @@ def test_freeze_load_roundtrip_and_integrity(toy_db, tmp_path):
     assert loaded.question == pack.question
     assert [r["row_id"] for r in loaded.rows] == [r["row_id"] for r in pack.rows]
     # tamper detection
-    import gzip, json as _json, shutil
+    import gzip
 
     src = tmp_path / "qX.json.gz"
     raw = gzip.decompress(src.read_bytes())
@@ -64,7 +64,7 @@ def test_freeze_load_roundtrip_and_integrity(toy_db, tmp_path):
 
     try:
         load_pack(tmp_path, "qX", expected_sha256=meta["sha256"])
-        assert False, "tamper not detected"
+        raise AssertionError("tamper not detected")
     except HarnessError:
         pass
 

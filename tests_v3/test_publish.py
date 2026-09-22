@@ -1,14 +1,11 @@
 """Publish stage tests: card content, figures staging, dry-run CLI."""
 
 import json
-from pathlib import Path
 
 from typer.testing import CliRunner
 
 from qwery_smith.cli import app
 from qwery_smith.publish import (
-    PIPELINE_DIAGRAM,
-    PublishSpec,
     build_model_card,
     _loss_curve_figure,
     _results_figure,
