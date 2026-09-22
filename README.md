@@ -32,6 +32,7 @@ uv run python -m qwery_smith triples  olist          # RAFT triples from train_o
 uv run python -m qwery_smith train    olist --seeds 1,2,3   # QLoRA config + T4 execution
 uv run python -m qwery_smith eval     olist          # 4-system matrix, identical questions
 uv run python -m qwery_smith report   olist          # results table + gate + failure folders
+uv run python -m qwery_smith publish  olist --hf-user <you>   # adapters -> Hugging Face, full cards
 ```
 
 ## What the harness enforces (not asserts)
