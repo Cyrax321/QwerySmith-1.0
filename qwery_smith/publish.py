@@ -2,9 +2,9 @@
 
 Produces, per seed:
   - adapter weights + tokenizer (huggingface_hub upload_folder)
-  - MODEL_CARD.md — full: architecture, recipe, dataset, evaluation (from
+  - MODEL_CARD.md - full: architecture, recipe, dataset, evaluation (from
     captured run artifacts only), citation format, limitations
-  - figures/ — loss curve (per-seed), results table render, pipeline diagram
+  - figures/ - loss curve (per-seed), results table render, pipeline diagram
   - train_record.json + the pinned QLoRA config
 
 Claims policy (v1.x review lesson): the card states exactly what was measured,
@@ -80,7 +80,7 @@ def _results_figure(report_md: str, out_path: Path) -> bool:
 
 
 PIPELINE_DIAGRAM = """```text
-                    QWERYSMITH 2.0 — ARCHITECTURE & PIPELINE
+                    QWERYSMITH 2.0 - ARCHITECTURE & PIPELINE
 ================================================================================
 
   RAW CSVs          PREPARE (CPU, local)                TRAIN (T4, Colab)
@@ -94,7 +94,7 @@ PIPELINE_DIAGRAM = """```text
                                                schema      3 seeds
 ================================================================================
 
-  EVAL MATRIX (L4, Colab) — identical questions + identical frozen packs
+  EVAL MATRIX (L4, Colab) - identical questions + identical frozen packs
 ===============================================================================
    row 1  Qwen3-8B base        + packs --> scorer --> EX / flip / refusal
    row 2  Qwen3-8B + adapter   + packs --> scorer --> mean of 3 seeds
@@ -105,7 +105,7 @@ PIPELINE_DIAGRAM = """```text
 
 ================================================================================
 
-  INFERENCE CONTRACT (what the fine-tune teaches — behaviour only)
+  INFERENCE CONTRACT (what the fine-tune teaches - behaviour only)
 ===============================================================================
    prompt = SYSTEM contract + SCHEMA (CREATE TABLE text)
           + QUESTION + RETRIEVED EVIDENCE [table:row_id] rows
@@ -116,7 +116,7 @@ PIPELINE_DIAGRAM = """```text
                  |
                  v
    sandboxed execution (read-only role, 30s timeout, sqlglot AST guard)
-   facts ALWAYS come from retrieval — the adapter never stores data
+   facts ALWAYS come from retrieval - the adapter never stores data
 ```"""
 
 
@@ -155,9 +155,9 @@ def build_model_card(
     gate_line = (
         "See the results table below."
         if gate_pass is None else
-        ("**GATE: PASS** — the candidate is within the pre-registered margin of the frontier reference."
+        ("**GATE: PASS** - the candidate is within the pre-registered margin of the frontier reference."
          if gate_pass else
-         "**GATE: FAIL** — the candidate did NOT meet the pre-registered gate. It is published for provenance, not as a recommended model.")
+         "**GATE: FAIL** - the candidate did NOT meet the pre-registered gate. It is published for provenance, not as a recommended model.")
     )
 
     card = f"""---
@@ -178,7 +178,7 @@ library_name: peft
 A **behaviour-tuned** text-to-SQL adapter: it answers questions about a
 relational database from retrieved evidence, with machine-verifiable
 citations, and refuses when the evidence does not contain the answer.
-**Facts come from retrieval — this adapter stores no data.**
+**Facts come from retrieval - this adapter stores no data.**
 
 {gate_line}
 
@@ -189,7 +189,7 @@ citations, and refuses when the evidence does not contain the answer.
   `REFUSAL:`), schema terminology, and calibrated refusal.
 - **Is not:** a knowledge store. Unmodified `{base_model}` + the same
   retrieval achieves the fact-bearing part; per the v1.1 finding,
-  fine-tuning taught style, not facts — this release is built on that
+  fine-tuning taught style, not facts - this release is built on that
   constraint.
 
 ## Training recipe (fully pinned)
@@ -211,7 +211,7 @@ produced by the harness (`triples` stage) and are reproducible from the repo.
 
 ## Dataset
 
-- **{dataset}** — [{dataset_url}]({dataset_url}), {dataset_license}
+- **{dataset}** - [{dataset_url}]({dataset_url}), {dataset_license}
 - {counts.get("total", "?")} questions with gold SQL + expected rows;
   difficulty-tagged; split mechanically:
   {counts.get("by_split", {}).get("train_ok", "?")} train_ok /
@@ -221,7 +221,7 @@ produced by the harness (`triples` stage) and are reproducible from the repo.
   held-out (cutoff {cutoff or "computed at profile time"}) and are never
   used in training. Enforced by a clamped-shadow-database execution check.
 
-## Evaluation — measured artifacts only
+## Evaluation - measured artifacts only
 
 All numbers below come from captured run artifacts
 (`report.md`, `failures/`), produced by the same harness on identical
@@ -231,7 +231,7 @@ questions with byte-identical frozen evidence packs for every system.
         card += "\n" + report_md.rstrip() + "\n"
     else:
         card += """
-*(Evaluation pending — this card is generated from the training run only.
+*(Evaluation pending - this card is generated from the training run only.
 The results table lands here after the eval matrix runs.)*
 """
     card += f"""
@@ -272,7 +272,7 @@ SELECT-only guard (the harness ships one).
 - Evaluation is on **{dataset}** only; generalization to other databases is
   not claimed by this card.
 - The adapter emits SQL for the schema it is shown; correctness depends on
-  retrieval quality — the same dependency every system in the matrix has.
+  retrieval quality - the same dependency every system in the matrix has.
 - Fine-tuned for the harness output contract; other prompt formats are
   out of distribution.
 - Single-dataset behaviour tune; the 3-seed spread (see sibling repos)
@@ -282,10 +282,10 @@ SELECT-only guard (the harness ships one).
 
 - Trained by the QwerySmith v3 harness (one-command reproducible):
   {f"[{repo_url}]({repo_url})" if repo_url else "see repository"}
-  {f"— design document: [{plan_url}]({plan_url})" if plan_url else ""}
+  {f" - design document: [{plan_url}]({plan_url})" if plan_url else ""}
 - Hardware: {hw.get("gpu", "unknown")}, {hw.get("vram_mb", "?")} MB VRAM;
   packages: {json.dumps(hw.get("packages", {}), indent=None)}
-- v1.x lineage (1.0/1.1 fine-tuning assignment and its evaluation):
+- v1.x lineage (1.0/1.1 fine-tuning pipeline and its evaluation):
   see the repository's `legacy/` directory.
 
 ## License
