@@ -118,10 +118,8 @@ def gen_aggregate(facts: SchemaFacts, adapter, cfg, rng) -> Optional[Candidate]:
         measure = facts.numeric_cols.get(tname) or [None]
         agg_col = rng.choice(measure) if measure != [None] else None
         # prefer an FK back to a dated parent for time filtering
-        dated_parent = None
         for (tb, col, rt, rc) in facts.fk_edges:
             if tb == tname and rt in facts.date_cols:
-                dated_parent = (tb, col, rt, rc)
                 break
         if agg_col:
             sql = (
@@ -149,8 +147,8 @@ def gen_multi_table_join(facts: SchemaFacts, adapter, cfg, rng) -> Optional[Cand
     dims = fk_by_table[ft]
     d1, d2 = rng.sample(dims, 2)
     (c1, t1, rc1), (c2, t2, rc2) = d1, d2
-    pk1 = facts.pk_by_table.get(t1, (rc1,))
-    pk2 = facts.pk_by_table.get(t2, (rc2,))
+    facts.pk_by_table.get(t1, (rc1,))
+    facts.pk_by_table.get(t2, (rc2,))
     cat1 = facts.categorical_cols.get(t1) or [rc1]
     cat2 = facts.categorical_cols.get(t2) or [rc2]
     g1, g2 = rng.choice(cat1), rng.choice(cat2)
