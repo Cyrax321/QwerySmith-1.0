@@ -8,9 +8,12 @@ Turns any relational database with history into a question-answering system
 that answers with citations, and measures small fine-tuned models against
 larger ones — on identical questions and identical retrieval.
 
-**Status:** harness complete and tested. Awaiting Olist raw data for the
-first full dataset run. No result numbers are claimed here; results land in
-`runs/<dataset>/` with a report generated from measured output only.
+**Status:** harness complete, lint-clean, 110 tests green, CI on every
+push. Publish path live (Hugging Face, token in env/Colab secret).
+Awaiting Olist raw data for the first full dataset run — no result numbers
+are claimed here; results land in `runs/<dataset>/` as reports generated
+from measured output only, and the gate verdict (whatever it turns out to
+be) is stated by code, not prose.
 
 ## Quickstart
 
