@@ -15,9 +15,11 @@ from ..exceptions import HarnessError
 from .base import DatabaseAdapter
 
 _TYPE_MAP = {
-    "TEXT": "TEXT", "INTEGER": "INTEGER", "INT": "INTEGER", "REAL": "REAL",
-    "FLOAT": "REAL", "NUMERIC": "NUMERIC", "BOOLEAN": "INTEGER", "DATE": "TEXT",
-    "TIMESTAMP": "TEXT",
+    "TEXT": "TEXT", "VARCHAR": "TEXT",
+    "INTEGER": "INTEGER", "INT": "INTEGER", "BIGINT": "INTEGER",
+    "REAL": "REAL", "FLOAT": "REAL", "DOUBLE": "REAL", "NUMERIC": "NUMERIC",
+    "BOOLEAN": "INTEGER", "DATE": "DATE", "TIMESTAMP": "TIMESTAMP",
+    "DATETIME": "TIMESTAMP", "DECIMAL": "NUMERIC",
 }
 
 
