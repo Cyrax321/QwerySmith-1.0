@@ -55,16 +55,20 @@ class _ClampedExecutor:
 def build_clamped_sqlite(
     source_path: Path, schema: Schema, holdout: HoldoutConfig, cutoff_iso: str
 ) -> _ClampedExecutor:
-    """In-memory shadow with the holdout window removed.
+    """Shadow with the holdout window removed, via ATTACH + INSERT...SELECT.
 
-    Copies data (original DDL preserved => column affinity preserved =>
-    canonical hashes comparable) rather than using cross-db views, which
-    SQLite forbids. Dim tables copy in full; the holdout table filters to
-    pre-cutoff rows; fact children filter to surviving parents.
+    Olist-scale lesson: copying 1.55M rows through Python was minutes of
+    work. Instead the source is ATTACHed read-only; only the clamped tables
+    (holdout table pre-cutoff + fact children of surviving parents) are
+    materialized in :memory: by the SQL engine itself. Dimension tables are
+    NOT copied - SQLite name resolution falls through to the attached db, and
+    unqualified names in user SQL resolve to the in-memory shadows first.
+    Original DDL is re-used so column affinity (and canonical hashes) match.
     """
     cutoff_lit = "'" + cutoff_iso.replace("'", "''") + "'"
     src = sqlite3.connect(f"file:{source_path}?mode=ro", uri=True)
     mem = sqlite3.connect(":memory:")
+    mem.execute("ATTACH DATABASE ? AS src", (str(source_path),))
 
     fact_children = {
         e.table: e for e in schema.fk_edges if e.ref_table == holdout.table
@@ -72,31 +76,27 @@ def build_clamped_sqlite(
 
     try:
         for tname in schema.tables:
+            if tname == holdout.table:
+                sel = (
+                    f'SELECT * FROM src."{tname}" WHERE "{holdout.col}" < {cutoff_lit}'
+                )
+            elif tname in fact_children:
+                e = fact_children[tname]
+                sel = (
+                    f'SELECT * FROM src."{tname}" WHERE "{e.column}" IN '
+                    f'(SELECT "{e.ref_column}" FROM src."{holdout.table}" '
+                    f'WHERE "{holdout.col}" < {cutoff_lit})'
+                )
+            else:
+                continue  # dimension: resolves from the attached source
+
             ddl_row = src.execute(
                 "SELECT sql FROM sqlite_master WHERE type='table' AND name = ?", (tname,)
             ).fetchone()
             if ddl_row is None or not ddl_row[0]:
                 continue
             mem.execute(ddl_row[0])
-
-            if tname == holdout.table:
-                sel = f'SELECT * FROM "{tname}" WHERE "{holdout.col}" < {cutoff_lit}'
-            elif tname in fact_children:
-                e = fact_children[tname]
-                sel = (
-                    f'SELECT * FROM "{tname}" WHERE "{e.column}" IN '
-                    f'(SELECT "{e.ref_column}" FROM "{holdout.table}" '
-                    f'WHERE "{holdout.col}" < {cutoff_lit})'
-                )
-            else:
-                sel = f'SELECT * FROM "{tname}"'
-
-            rows = src.execute(sel).fetchall()
-            n_cols = len(rows[0]) if rows else len(src.execute(f'PRAGMA table_info("{tname}")').fetchall())
-            if rows:
-                mem.executemany(
-                    f'INSERT INTO "{tname}" VALUES ({", ".join("?" * n_cols)})', rows
-                )
+            mem.execute(f'INSERT INTO "{tname}" {sel}')
     finally:
         src.close()
     return _ClampedExecutor(mem)
