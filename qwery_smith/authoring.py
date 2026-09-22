@@ -41,7 +41,7 @@ class SchemaFacts:
 
 
 def discover_facts(
-    adapter: DatabaseAdapter, schema, max_cardinality: int = 25
+    adapter: DatabaseAdapter, schema, max_cardinality: int = 60
 ) -> SchemaFacts:
     facts = SchemaFacts(
         pk_by_table={}, fk_edges=[], columns={}, date_cols={}, text_cols={},
@@ -89,11 +89,17 @@ def _quote(v: Any) -> str:
 
 
 def gen_per_order_lookup(facts: SchemaFacts, adapter, cfg, rng) -> Optional[Candidate]:
-    """A lookup about one entity: 'status of order X' - pk equality filter."""
+    """A lookup about one entity: 'status of order X' - key equality filter.
+
+    Handles both single-column PKs and single-column KEYS on flat tables
+    (e.g. Invoice on a line-grain table): the lookup target is one entity
+    id from the key column, projected attributes from the same row-set.
+    """
+    # 1) classic single-column pk path
     for tname in facts.sample_pks:
         pk = facts.pk_by_table[tname]
         if len(pk) != 1:
-            continue  # multi-column pk: lookup templates need a single key
+            continue
         cols = [c for c, _ in facts.columns[tname] if c != pk[0]]
         if not cols:
             continue
@@ -102,29 +108,112 @@ def gen_per_order_lookup(facts: SchemaFacts, adapter, cfg, rng) -> Optional[Cand
         if not vals:
             continue
         pk_val = rng.choice(vals)
-        sql = (
-            f'SELECT "{target}" FROM "{tname}" WHERE "{pk[0]}" = {_quote(pk_val)}'
-        )
+        sql = f'SELECT "{target}" FROM "{tname}" WHERE "{pk[0]}" = {_quote(pk_val)}'
         q = f"What is the {target.replace('_', ' ')} of {tname} {_quote(pk_val).strip(chr(39))}?"
         return Candidate(q, sql, "per_order_lookup", "easy", {"table": tname, "pk": pk_val, "col": target})
+
+    # 2) flat-table path: pick a low-cardinality text column as the entity key
+    #    (invoice-like), project 1-2 attributes for one sampled value
+    for tname, cats in facts.categorical_cols.items():
+        key_cols = [
+            c for c, ty in facts.columns[tname]
+            if ty == "TEXT" and c not in cats and c not in facts.numeric_cols.get(tname, [])
+        ]
+        if not key_cols:
+            continue
+        key = rng.choice(key_cols)
+        # distinct non-empty values, bounded query
+        row = adapter.scalar(
+            f'SELECT COUNT(DISTINCT "{key}") FROM "{tname}" '
+            f'WHERE "{key}" IS NOT NULL AND "{key}" != \'\''
+        )
+        n_distinct = row[0] if row else 0
+        if not n_distinct or n_distinct > 200000:
+            continue
+        srow = adapter.scalar(
+            f'SELECT "{key}" FROM "{tname}" WHERE "{key}" IS NOT NULL AND "{key}" != \'\' '
+            f'ORDER BY RANDOM() LIMIT 1'
+        )
+        if not srow or srow[0] is None:
+            continue
+        key_val = srow[0]
+        proj = rng.sample([c for c, _t in facts.columns[tname] if c != key], k=min(2, len(facts.columns[tname]) - 1))
+        sel = ", ".join(f'"{c}"' for c in proj)
+        sql = f'SELECT {sel} FROM "{tname}" WHERE "{key}" = {_quote(key_val)}'
+        key_label = key.replace("_", " ").lower().replace(" id", "")
+        q = (
+            f"For {key_label} {str(key_val)}, list "
+            + " and ".join(c.replace('_', ' ').lower() for c in proj) + "."
+        )
+        return Candidate(q, sql, "per_order_lookup", "easy",
+                         {"table": tname, "key": key, "key_val": key_val})
     return None
 
 
 def gen_aggregate(facts: SchemaFacts, adapter, cfg, rng) -> Optional[Candidate]:
-    """SUM/COUNT/AVG grouped by a categorical, optionally time-filtered."""
+    """SUM/COUNT/AVG grouped by a categorical; variants: plain, month-windowed,
+    HAVING-filtered, per-entity count. Randomized across a real parameter
+    space so flat tables yield diverse aggregates, not one repeated shape."""
     for tname in facts.categorical_cols:
         cat = rng.choice(facts.categorical_cols[tname])
-        measure = facts.numeric_cols.get(tname) or [None]
-        agg_col = rng.choice(measure) if measure != [None] else None
-        if agg_col:
-            sql = (
-                f'SELECT "{cat}", SUM("{agg_col}") AS total_{agg_col} FROM "{tname}" '
-                f'GROUP BY "{cat}" ORDER BY total_{agg_col} DESC'
+        numeric = facts.numeric_cols.get(tname) or []
+        dcols = facts.date_cols.get(tname) or []
+        variant = rng.choice(["plain", "windowed", "having", "count"])
+        if variant == "windowed" and dcols:
+            dcol = rng.choice(dcols)
+            # sample a real month from the data
+            srow = adapter.scalar(
+                f"SELECT STRFTIME('%Y-%m', \"{dcol}\") FROM \"{tname}\" "
+                f"WHERE \"{dcol}\" IS NOT NULL ORDER BY RANDOM() LIMIT 1"
             )
-            q = f"Total {agg_col.replace('_', ' ')} by {cat.replace('_', ' ')} in {tname}."
-        else:
-            sql = f'SELECT "{cat}", COUNT(*) AS n FROM "{tname}" GROUP BY "{cat}" ORDER BY n DESC'
-            q = f"Number of records by {cat.replace('_', ' ')} in {tname}."
+            month = srow[0] if srow and srow[0] else None
+            if month:
+                if numeric:
+                    m = rng.choice(numeric)
+                    sql = (
+                        f'SELECT "{cat}", SUM("{m}") AS total_{m}\n'
+                        f'FROM "{tname}"\n'
+                        f'WHERE STRFTIME(\'%Y-%m\', "{dcol}") = \'{month}\'\n'
+                        f'GROUP BY "{cat}" ORDER BY total_{m} DESC'
+                    )
+                    q = f"Total {m.replace('_', ' ')} by {cat.replace('_', ' ')} in {month}."
+                else:
+                    sql = (
+                        f'SELECT "{cat}", COUNT(*) AS n\n'
+                        f'FROM "{tname}"\n'
+                        f'WHERE STRFTIME(\'%Y-%m\', "{dcol}") = \'{month}\'\n'
+                        f'GROUP BY "{cat}" ORDER BY n DESC'
+                    )
+                    q = f"Number of records by {cat.replace('_', ' ')} in {month}."
+                return Candidate(q, sql, "aggregation", "medium",
+                                 {"table": tname, "group": cat, "month": month})
+        if variant == "having":
+            if numeric:
+                m = rng.choice(numeric)
+                sql = (
+                    f'SELECT "{cat}", COUNT(*) AS n, SUM("{m}") AS total_{m}\n'
+                    f'FROM "{tname}" GROUP BY "{cat}" HAVING COUNT(*) > 1000 '
+                    f'ORDER BY total_{m} DESC'
+                )
+                q = (
+                    f"By {cat.replace('_', ' ')}: groups with over 1000 records, "
+                    f"with total {m.replace('_', ' ')}."
+                )
+                return Candidate(q, sql, "aggregation", "hard",
+                                 {"table": tname, "group": cat, "having": True})
+        if numeric and variant == "plain":
+            m = rng.choice(numeric)
+            fn = rng.choice(["SUM", "AVG"])
+            label = f"{fn.lower()}_{m}"
+            sql = (
+                f'SELECT "{cat}", {fn}("{m}") AS {label} FROM "{tname}" '
+                f'GROUP BY "{cat}" ORDER BY {label} DESC'
+            )
+            q = f"{fn} {m.replace('_', ' ')} by {cat.replace('_', ' ')}."
+            return Candidate(q, sql, "aggregation", "medium", {"table": tname, "group": cat, "fn": fn})
+        # count fallback
+        sql = f'SELECT "{cat}", COUNT(*) AS n FROM "{tname}" GROUP BY "{cat}" ORDER BY n DESC'
+        q = f"Number of records by {cat.replace('_', ' ')}."
         return Candidate(q, sql, "aggregation", "medium", {"table": tname, "group": cat})
     return None
 
@@ -137,7 +226,7 @@ def gen_multi_table_join(facts: SchemaFacts, adapter, cfg, rng) -> Optional[Cand
         fk_by_table.setdefault(tb, []).append((col, rt, rc))
     facts_tables = [t for t in fk_by_table if len(fk_by_table[t]) >= 2]
     if not facts_tables:
-        return None
+        return gen_multi_table_join_flat(facts, adapter, cfg, rng)
     ft = rng.choice(facts_tables)
     dims = fk_by_table[ft]
     d1, d2 = rng.sample(dims, 2)
@@ -164,6 +253,63 @@ def gen_multi_table_join(facts: SchemaFacts, adapter, cfg, rng) -> Optional[Cand
         f"by {g1.replace('_', ' ')} and {g2.replace('_', ' ')}."
     )
     return Candidate(q, sql, "multi_table_join", "hard", {"fact": ft, "dims": [t1, t2]})
+
+
+def gen_multi_table_join_flat(facts: SchemaFacts, adapter, cfg, rng) -> Optional[Candidate]:
+    """No-FK fallback: two-level grouping + subquery on a single wide table.
+
+    Still exercises the hard patterns (nested aggregation, comparison against
+    a global statistic) without a join graph to walk.
+    """
+    for tname in facts.categorical_cols:
+        cats = facts.categorical_cols[tname]
+        numeric = facts.numeric_cols.get(tname) or []
+        if len(cats) < 1 or not numeric:
+            continue
+        cat = rng.choice(cats)
+        m = rng.choice(numeric)
+        variant = rng.choice(["above_global_avg", "top_by_subgroup"])
+        if variant == "above_global_avg":
+            sql = (
+                f'SELECT "{cat}", SUM("{m}") AS total_{m}\n'
+                f'FROM "{tname}"\n'
+                f'GROUP BY "{cat}"\n'
+                f'HAVING SUM("{m}") > (SELECT AVG(total) FROM '
+                f'(SELECT SUM("{m}") AS total FROM "{tname}" GROUP BY "{cat}"))\n'
+                f'ORDER BY total_{m} DESC'
+            )
+            q = (
+                f"Which {cat.replace('_', ' ')} have total {m.replace('_', ' ')} "
+                f"above the overall group average?"
+            )
+            return Candidate(q, sql, "multi_table_join", "hard",
+                             {"table": tname, "variant": variant})
+        # top_by_subgroup: two distinct categoricals if possible, else month x cat
+        dcols = facts.date_cols.get(tname) or []
+        if dcols:
+            dcol = rng.choice(dcols)
+            other_cats = [c for c in cats if c != cat]
+            if other_cats:
+                cat2 = rng.choice(other_cats)
+                g2_sql = f'"{cat2}"'
+                g2_label = cat2.replace('_', ' ')
+            else:
+                cat2 = None
+                g2_sql = f'STRFTIME(\'%Y-%m\', "{dcol}") AS month'
+                g2_label = "month"
+            sql = (
+                f'SELECT "{cat}", {g2_sql}, SUM("{m}") AS total_{m}\n'
+                f'FROM "{tname}"\n'
+                f'WHERE STRFTIME(\'%Y\', "{dcol}") = \'2011\'\n'
+                f'GROUP BY "{cat}", {g2_sql} ORDER BY total_{m} DESC LIMIT 20'
+            )
+            q = (
+                f"Top 20 {cat.replace('_', ' ')} by {g2_label} "
+                f"combinations for total {m.replace('_', ' ')} in 2011."
+            )
+            return Candidate(q, sql, "multi_table_join", "hard",
+                             {"table": tname, "variant": variant})
+    return None
 
 
 def gen_review_text(facts: SchemaFacts, adapter, cfg, rng) -> Optional[Candidate]:
