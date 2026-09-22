@@ -110,6 +110,24 @@ uv run python -m qwery_smith report olist --run runs/olist
 #    -> report.md (fixed table + gate verdict) + failures/<system>/ per wrong answer
 ```
 
+**Publish (any machine with the HF token):**
+
+```bash
+# 8. push adapters to Hugging Face with full model cards
+#    local: token lives in .env (auto-loaded, gitignored)
+#    Colab: token in the secret manager as HF_TOKEN
+uv run python -m qwery_smith publish olist --hf-user Cyrax321                    # per-seed repos
+uv run python -m qwery_smith publish olist --hf-user Cyrax321 --canonical-seed 2 \
+    --gate-pass <verdict>                 # canonical QwerySmith-2.0 (median-EX seed)
+uv run python -m qwery_smith publish olist --hf-user Cyrax321 --dry-run        # preview cards
+```
+
+Per-seed repos `QwerySmith-2.0-seed{1,2,3}` carry: adapter weights, pinned
+recipe, dataset + mechanical holdout rule, loss figure, hardware manifest,
+pipeline diagram, limitations. The canonical repo additionally embeds the
+measured results table and states the gate verdict plainly (a FAIL card
+reads "published for provenance, not as a recommended model").
+
 Every step writes its artifacts under `runs/` or `datasets/<name>/prepared/`;
 `report` reads only captured output — nothing is recomputed from memory.
 
