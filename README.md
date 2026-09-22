@@ -12,6 +12,26 @@ larger ones — on identical questions and identical retrieval.
 first full dataset run. No result numbers are claimed here; results land in
 `runs/<dataset>/` with a report generated from measured output only.
 
+## Quickstart
+
+```bash
+# 1. clone + env
+git clone https://github.com/Cyrax321/QwerySmith-1.0.git && cd QwerySmith-1.0
+uv sync --group dev --extra postgres
+
+# 2. prove the harness on the bundled toy shape (no data download needed)
+uv run pytest tests_v3 -q                         # 110 green
+uv run pytest tests_v3/test_reusability.py -q      # the config-only proof
+
+# 3. first real run: drop the 9 Olist CSVs into datasets/olist/raw/, then
+uv run python -m qwery_smith ingest  olist
+uv run python -m qwery_smith profile olist         # prints the frozen holdout cutoff
+```
+
+The harness is dataset-agnostic: the only place a dataset's specifics live
+is `datasets/<name>/config.yaml` (+ its question file). The full runbook is
+at the bottom of this README.
+
 ## The design constraint
 
 The v1.1 evaluation showed fine-tuning teaches style, not facts. So in v3:
