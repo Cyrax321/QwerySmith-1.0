@@ -516,15 +516,133 @@ def report(
 
 
 @app.command()
+def publish(
+    dataset: str = typer.Argument(...),
+    root: Optional[Path] = typer.Option(None),
+    hf_user: str = typer.Option(..., help="HF username/org (e.g. Cyrax321)"),
+    model_prefix: str = typer.Option("QwerySmith-2.0"),
+    train_run: Optional[Path] = typer.Option(None, help="train run dir (default latest runs/<name>/train_*)"),
+    report_path: Optional[Path] = typer.Option(None, help="report.md to embed in the card"),
+    canonical_seed: Optional[int] = typer.Option(
+        None, help="median-EX seed to also publish as the canonical repo (after eval)"
+    ),
+    gate_pass: Optional[bool] = typer.Option(None, help="gate verdict to state on the card"),
+    dry_run: bool = typer.Option(False, help="stage locally, skip the upload"),
+) -> None:
+    """Stage 7: publish adapters to Hugging Face with full model cards + figures.
+
+    Per seed: <prefix>-seed<N> repo (adapter, card, loss figure, records).
+    With --canonical-seed: also <prefix> (the canonical release).
+    Set HF_TOKEN in the environment; --dry-run stages without uploading.
+    """
+    cfg = _load(dataset, root)
+    import json
+    import os
+    import shutil
+
+    base = root or Path.cwd()
+    train_dir = train_run
+    if train_dir is None:
+        candidates = sorted((base / "runs" / cfg.name).glob("train_*"))
+        if not candidates:
+            typer.secho("no train run found; run `train` first", fg=typer.colors.RED)
+            raise typer.Exit(2)
+        train_dir = candidates[-1]
+    adapters_dir = train_dir / "adapters"
+    if not adapters_dir.exists() or not list(adapters_dir.glob("adapter_seed*")):
+        typer.secho(f"no adapters in {adapters_dir}", fg=typer.colors.RED)
+        raise typer.Exit(2)
+
+    # question counts for the card
+    counts: dict = {}
+    if cfg.question_file.exists():
+        from .questions import QuestionSet
+
+        counts = QuestionSet.load(cfg.question_file).counts()
+
+    # cutoff from the frozen profile
+    cutoff = None
+    profile = base / DATASETS_ROOT / cfg.name / "prepared" / "profile.yaml"
+    if profile.exists():
+        import yaml
+
+        prof = yaml.safe_load(profile.read_text())
+        cutoff = (prof.get("holdout") or {}).get("cutoff")
+
+    # report to embed
+    report_md = report_path
+    if report_md is None:
+        latest = sorted((base / "runs" / cfg.name).glob("*/report.md"))
+        report_md = latest[-1] if latest else None
+
+    from .publish import build_model_card
+
+    if dry_run:
+        # stage cards locally for inspection, no upload
+        out = base / "runs" / cfg.name / train_dir.name / "hf_cards_preview"
+        out.mkdir(parents=True, exist_ok=True)
+        import re as _re
+        import yaml as _yaml
+
+        for adapter in sorted(adapters_dir.glob("adapter_seed*")):
+            m = _re.search(r"seed(\d+)", adapter.name)
+            record_p = adapter / "train_record.json"
+            if not m or not record_p.exists():
+                continue
+            seed = int(m.group(1))
+            record = json.loads(record_p.read_text())
+            qlora_cfg = _yaml.safe_load((train_dir / f"qlora_seed{seed}.yaml").read_text())
+            card = build_model_card(
+                model_name=f"{model_prefix}-seed{seed}",
+                base_model=qlora_cfg["base_model"],
+                dataset=cfg.name,
+                dataset_url=cfg.source_url,
+                dataset_license=cfg.license,
+                question_counts=counts,
+                cutoff=cutoff,
+                qlora_config=qlora_cfg,
+                train_record=record,
+                report_md=(Path(report_md).read_text() if report_md and Path(report_md).exists() else None),
+                gate_pass=gate_pass,
+            )
+            (out / f"card_seed{seed}.md").write_text(card, encoding="utf-8")
+        typer.secho(f"dry-run: cards staged at {out} (no upload)", fg=typer.colors.GREEN)
+        return
+
+    if not os.environ.get("HF_TOKEN"):
+        typer.secho("HF_TOKEN not set — export it (huggingface.co/settings/tokens, write access)", fg=typer.colors.RED)
+        raise typer.Exit(2)
+
+    from .publish import publish_all
+
+    results = publish_all(
+        adapters_dir=adapters_dir,
+        train_run_dir=train_dir,
+        hf_user=hf_user,
+        model_prefix=model_prefix,
+        dataset_cfg=cfg,
+        question_counts=counts,
+        cutoff=cutoff,
+        report_md_path=Path(report_md) if report_md else None,
+        gate_pass=gate_pass,
+        canonical_seed=canonical_seed,
+    )
+    for r in results:
+        typer.secho(f"published: https://huggingface.co/{r['repo_id']}", fg=typer.colors.GREEN)
+
+
+@app.command()
 def all(
     dataset: str = typer.Argument(...),
     root: Optional[Path] = typer.Option(None),
-    stages: str = typer.Option("ingest,profile,validate,retrieve,train,eval,report"),
+    stages: str = typer.Option(
+        "ingest,profile,validate,retrieve,triples,train,eval,report",
+        help="comma-separated stages to run (publish excluded: needs HF_TOKEN)",
+    ),
 ) -> None:
     """One command rebuilds everything from raw data (plan §8.2)."""
     for stage in [s.strip() for s in stages.split(",") if s.strip()]:
         typer.secho(f"=== {stage} ===", bold=True)
-        # dispatch through the same command functions
         {"ingest": ingest, "profile": profile, "validate": validate,
          "retrieve": retrieve, "triples": triples, "train": train,
          "eval": eval, "report": report}[stage](dataset, root=root)

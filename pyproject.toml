@@ -13,7 +13,7 @@ dependencies = [
 
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.2"]
-ml = ["unsloth", "trl", "datasets", "torch", "peft", "transformers", "accelerate", "bitsandbytes", "matplotlib"]
+ml = ["unsloth", "trl", "datasets", "torch", "peft", "transformers", "accelerate", "bitsandbytes", "matplotlib", "huggingface_hub"]
 
 [dependency-groups]
 dev = ["pytest>=8.0"]

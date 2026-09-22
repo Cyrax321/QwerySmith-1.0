@@ -273,6 +273,10 @@ def train_from_config(config_path: Path, triples_path: Path, adapter_out: Path) 
         "adapter_sha256": _sha256_tree(adapter_path),
         "final_loss": float(trainer.state.log_history[-1].get("train_loss", "nan"))
         if trainer.state.log_history else None,
+        "log_history": [
+            {k: v for k, v in entry.items() if k in ("loss", "epoch", "step", "learning_rate")}
+            for entry in trainer.state.log_history
+        ],
         "finished_at": datetime.now().isoformat(timespec="seconds"),
     }
     (adapter_path / "train_record.json").write_text(
