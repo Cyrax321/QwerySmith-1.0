@@ -92,7 +92,16 @@ from empty; row order matters only for `ORDER BY ... LIMIT` gold.
 | 4 | Frontier model + retrieval (public data only) | reference |
 
 All four run through one code path (`qwery_smith.evaluate.run_system`);
-a "system" is just a callable from a prompt to raw output.
+a "system" is just a callable from a prompt to raw output. Identical
+questions, byte-identical frozen evidence packs, identical sandbox and
+scorer — the only variable between row 1 and row 2 is the adapter weights
+(the v1.1 confound, closed). Row 2 runs 3 seeds: the report folds them per
+plan §7.1 (mean EX ± range; median-EX seed carries the McNemar row).
+
+**Gate (pre-registered, frozen):** row 2 passes iff within 5 EX points of
+row 4 AND no worse flip rate. On FAIL, row 3 vs row 4 is reported on the
+same measures. Any amendment requires a written change before any run
+exists.
 
 ## Hardware (plan §8.3)
 
