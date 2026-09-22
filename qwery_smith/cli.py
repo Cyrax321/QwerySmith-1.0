@@ -299,6 +299,9 @@ def triples(
     dataset: str = typer.Argument(...),
     root: Optional[Path] = typer.Option(None),
     seed: int = typer.Option(0, help="distractor sampling seed (per-run; eval seeds are separate)"),
+    per_question: int = typer.Option(
+        8, help="instances sampled per question (mix + distractors re-rolled per draw)"
+    ),
 ) -> None:
     """Stage 3b: build RAFT triples from train_ok questions only (plan §3.3)."""
     cfg = _load(dataset, root)
@@ -319,7 +322,8 @@ def triples(
         eval_packs = {q.id: load_pack(packs_dir, q.id) for q in qs.questions if q.split == "train_ok"}
         rng = random.Random(cfg.seed + seed)
 
-        built = build_triples(cfg, qs.questions, index, schema.ddl_text(), eval_packs, rng=rng)
+        built = build_triples(cfg, qs.questions, index, schema.ddl_text(), eval_packs,
+                              rng=rng, per_question=per_question)
         out = (root or Path.cwd()) / DATASETS_ROOT / cfg.name / "prepared" / f"triples_seed{cfg.seed + seed}.jsonl"
         meta = write_triples(built, out)
         typer.secho(f"built {meta['n']} triples -> {meta['triples']}", fg=typer.colors.GREEN)

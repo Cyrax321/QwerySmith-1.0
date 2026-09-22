@@ -158,12 +158,16 @@ def build_triples(
     answer_texts: Optional[dict[str, str]] = None,
     rng: Optional[random.Random] = None,
     mix: dict[str, float] | None = None,
+    per_question: int = 1,
 ) -> list[Triple]:
     """Build RAFT triples from train_ok questions only.
 
     mix: {grounded, refusal, schema_only} shares, default 70/15/15 (plan §3.3).
     answer_texts: qid -> gold answer sentence. If absent, generated as
     "The query returns N row(s)." - datasets author richer sentences later.
+    per_question: instances sampled per question (the §12.3 augmentation;
+    each draw re-rolls the mix and distractors, so a small question set
+    still yields a behaviour-tune-sized corpus).
     """
     rng = rng or random.Random(cfg.seed)
     m = mix or {"grounded": 0.70, "refusal": 0.15, "schema_only": 0.15}
@@ -173,55 +177,56 @@ def build_triples(
     for q in questions:
         if q.split != "train_ok":
             continue  # held-out questions NEVER reach the trainer
-        pack = eval_packs.get(q.id)
-        if pack is None:
-            continue
-        # positive rows = the pack rows the gold answer cites
-        positive_ids = {f"{r['table']}:{r['row_id']}" for r in pack.rows}
-        positives = [r for r in pack.rows]
-        answer_sentence = (answer_texts or {}).get(q.id, f"The query returns {q.expected_rows.n_rows} row(s).")
+        for _draw in range(per_question):
+            pack = eval_packs.get(q.id)
+            if pack is None:
+                continue
+            # positive rows = the pack rows the gold answer cites
+            positive_ids = {f"{r['table']}:{r['row_id']}" for r in pack.rows}
+            positives = [r for r in pack.rows]
+            answer_sentence = (answer_texts or {}).get(q.id, f"The query returns {q.expected_rows.n_rows} row(s).")
 
-        roll = rng.random()
-        if roll < m["grounded"]:
-            evidence = positives + [
-                {"table": d.table, "row_id": d.row_id, "columns": list(d.columns),
-                 "values": [str(v) if v is not None else None for v in d.values]}
-                for d in sample_distractors(docs, positive_ids, rng, rng.randint(2, 5))
-            ]
-            rng.shuffle(evidence)
-            ev_text = "\n".join(
-                f"[{r['table']}:{r['row_id']}] " + " | ".join(
-                    f"{c}: {v}" for c, v in zip(r["columns"], r["values"], strict=False) if v not in (None, "")
+            roll = rng.random()
+            if roll < m["grounded"]:
+                evidence = positives + [
+                    {"table": d.table, "row_id": d.row_id, "columns": list(d.columns),
+                     "values": [str(v) if v is not None else None for v in d.values]}
+                    for d in sample_distractors(docs, positive_ids, rng, rng.randint(2, 5))
+                ]
+                rng.shuffle(evidence)
+                ev_text = "\n".join(
+                    f"[{r['table']}:{r['row_id']}] " + " | ".join(
+                        f"{c}: {v}" for c, v in zip(r["columns"], r["values"], strict=False) if v not in (None, "")
+                    )
+                    for r in evidence
                 )
-                for r in evidence
-            )
-            prompt = render_prompt(schema_ddl, q.question, ev_text)
-            target = build_training_target(q, answer_sentence, positives)
-            triples.append(Triple(
-                question_id=q.id,
-                kind="grounded",
-                prompt=prompt,
-                target=target,
-                evidence_row_ids=sorted(positive_ids | {f"{r['table']}:{r['row_id']}" for r in evidence}),
-            ))
-        elif roll < m["grounded"] + m["refusal"]:
-            # distractors only -> refusal
-            distractors = sample_distractors(docs, positive_ids, rng, max(len(positives), 3))
-            ev_text = "\n".join(d.render() for d in distractors)
-            prompt = render_prompt(schema_ddl, q.question, ev_text)
-            target = "REFUSAL:\nThe retrieved evidence does not contain records matching this question."
-            triples.append(Triple(
-                question_id=q.id, kind="refusal", prompt=prompt, target=target,
-                evidence_row_ids=sorted({f"{d.table}:{d.row_id}" for d in distractors}),
-            ))
-        else:
-            # schema-only: no rows
-            prompt = render_prompt(schema_ddl, q.question, "(no rows retrieved)")
-            target = build_training_target(q, answer_sentence, positives)
-            triples.append(Triple(
-                question_id=q.id, kind="schema_only", prompt=prompt, target=target,
-                evidence_row_ids=[],
-            ))
+                prompt = render_prompt(schema_ddl, q.question, ev_text)
+                target = build_training_target(q, answer_sentence, positives)
+                triples.append(Triple(
+                    question_id=q.id,
+                    kind="grounded",
+                    prompt=prompt,
+                    target=target,
+                    evidence_row_ids=sorted(positive_ids | {f"{r['table']}:{r['row_id']}" for r in evidence}),
+                ))
+            elif roll < m["grounded"] + m["refusal"]:
+                # distractors only -> refusal
+                distractors = sample_distractors(docs, positive_ids, rng, max(len(positives), 3))
+                ev_text = "\n".join(d.render() for d in distractors)
+                prompt = render_prompt(schema_ddl, q.question, ev_text)
+                target = "REFUSAL:\nThe retrieved evidence does not contain records matching this question."
+                triples.append(Triple(
+                    question_id=q.id, kind="refusal", prompt=prompt, target=target,
+                    evidence_row_ids=sorted({f"{d.table}:{d.row_id}" for d in distractors}),
+                ))
+            else:
+                # schema-only: no rows
+                prompt = render_prompt(schema_ddl, q.question, "(no rows retrieved)")
+                target = build_training_target(q, answer_sentence, positives)
+                triples.append(Triple(
+                    question_id=q.id, kind="schema_only", prompt=prompt, target=target,
+                    evidence_row_ids=[],
+                ))
 
     return triples
 
