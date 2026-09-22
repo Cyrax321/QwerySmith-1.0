@@ -216,11 +216,23 @@ Every step writes its artifacts under `runs/` or `datasets/<name>/prepared/`;
 ## Repository layout
 
 ```
-qwery_smith/        dataset-agnostic harness (no Olist string in source)
+qwery_smith/        dataset-agnostic harness — 11 CLI stages, no Olist
+                    string in source. Core modules: schema_loader, profiler,
+                    authoring, clamp (holdout enforcement), retrieval, triples,
+                    training, scoring, evaluate, report, publish, systems.
 datasets/           configs + question sets — the ONLY dataset specifics
-runs/               per-run artifacts: raw outputs, summaries, failure folders
-tests_v3/           unit + integration + reusability proof
-notebooks/          T4/Colab training cells (pinned-config execution)
+                    (olist: 9 tables; online_retail_ii: grouped 2-file load)
+runs/               per-run artifacts: adapters + train records, raw outputs,
+                    summaries, report.md, failure folders
+tests_v3/           110 tests: guard bypasses, clamp window-dependence,
+                    scoring vs R reference values, CLI loops, reusability
+                    proof, publish card content
+notebooks/          t4_train.ipynb (prepare→train→publish→zip)
+                    eval_servers.ipynb (serve→eval passes→report→publish)
+.github/            CI: tests + reusability proof on every push/PR
+legacy/             QwerySmith 1.x assignment, preserved verbatim
+PLAN.md             the design document (gate fixed before any run)
+CHANGELOG.md        what shipped, per release line
 ```
 
 ## Troubleshooting
