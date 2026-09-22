@@ -14,6 +14,27 @@ from .exceptions import HarnessError, StageNotImplementedError
 app = typer.Typer(add_completion=False, help="QwerySmith v3.0 harness")
 
 
+def _load_env() -> None:
+    """Auto-load a gitignored .env next to the repo root (HF_TOKEN etc.).
+    No dependency: plain KEY=VALUE lines; comments ignored."""
+    import os
+
+    env_path = Path.cwd() / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        k, v = k.strip(), v.strip()
+        if k and k not in os.environ:  # real environment wins over .env
+            os.environ[k] = v
+
+
+_load_env()
+
+
 def _load(dataset: str, root: Optional[Path] = None) -> DatasetConfig:
     try:
         return DatasetConfig.load(dataset, root=root)
