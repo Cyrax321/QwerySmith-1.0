@@ -129,8 +129,18 @@ class PostgresAdapter(DatabaseAdapter):
             )
             self.conn.commit()
         except Exception:
-            # Olist has known FK orphans - report, don't fail (plan §4.1)
+            # Olist has known FK orphans — report, don't fail (plan §4.1)
             self.conn.rollback()
+        finally:
+            cur.close()
+
+    def create_index(self, table: str, columns: list[str]) -> None:
+        cur = self.conn.cursor()
+        try:
+            idx = "idx_{}_{}".format(table, "_".join(columns))[:63]
+            col_list = ", ".join(f'"{c}"' for c in columns)
+            cur.execute(f'CREATE INDEX IF NOT EXISTS "{idx}" ON "{table}" ({col_list})')
+            self.conn.commit()
         finally:
             cur.close()
 

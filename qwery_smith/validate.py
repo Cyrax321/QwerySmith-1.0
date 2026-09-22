@@ -209,5 +209,14 @@ def ingest_dataset(cfg, adapter) -> dict[str, int]:
         adapter.add_primary_key(table, pk_cols)
     for spec in cfg.datasource.extra.get("foreign_keys", []):
         adapter.add_foreign_key(spec["table"], spec["column"], spec["ref_table"], spec["ref_column"])
+        # FK columns are the join keys: index them (meta-FK declarations
+        # create none, and Olist-scale joins need them)
+        adapter.create_index(spec["table"], [spec["column"]])
+    # holdout column: the clamp + leak checks filter on it constantly
+    ho = cfg.holdout
+    if ho is not None and ho.table in cfg.datasource.table_map.values() or (
+        ho is not None and ho.table in cfg.datasource.table_map
+    ):
+        adapter.create_index(ho.table, [ho.col])
 
     return counts

@@ -114,6 +114,12 @@ class SQLiteAdapter(DatabaseAdapter):
         )
         self.conn.commit()
 
+    def create_index(self, table: str, columns: list[str]) -> None:
+        idx = "idx_{}_{}".format(table, "_".join(columns))[:64]
+        col_list = ", ".join(f'"{c}"' for c in columns)
+        self.conn.execute(f'CREATE INDEX IF NOT EXISTS "{idx}" ON "{table}" ({col_list})')
+        self.conn.commit()
+
     def _meta(self, table_name: str, table: str, cols: tuple[str, ...]) -> list[tuple]:
         try:
             cur = self.conn.execute(

@@ -113,3 +113,16 @@ datasource:
       - {table: order_payments, column: order_id,     ref_table: orders,     ref_column: order_id}
       - {table: order_reviews, column: order_id,     ref_table: orders,     ref_column: order_id}
       - {table: products,      column: product_category_name, ref_table: product_category_translation, ref_column: product_category_name}
+# authoring hints (config-only; dataset specifics never live in harness code)
+extra:
+  authoring:
+    max_cardinality: 80          # customer_state (27), product categories (73)
+    exclude_tables:             # 1M-row denormalized dims: poison authoring scans
+      - geolocation
+    review_keywords:             # curated Portuguese review-text keywords
+      - "não recebi"
+      - "quebrado"
+      - "ótimo"
+      - "antes do prazo"
+      - "produto errado"
+      - "recomendo"

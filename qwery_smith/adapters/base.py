@@ -58,7 +58,14 @@ class DatabaseAdapter(ABC):
 
     @abstractmethod
     def add_foreign_key(self, table: str, column: str, ref_table: str, ref_column: str) -> None:
-        """May no-op if orphans exist - implementations report but do not fail."""
+        """May no-op if orphans exist — implementations report but do not fail."""
+        ...
+
+    @abstractmethod
+    def create_index(self, table: str, columns: list[str]) -> None:
+        """Create IF NOT EXISTS index on (columns). PK + FK columns get these at
+        ingest — metadata FK declarations create none, and unindexed joins on
+        million-row tables are O(n*m)."""
         ...
 
     @abstractmethod
