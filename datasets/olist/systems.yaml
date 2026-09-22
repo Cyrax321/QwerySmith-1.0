@@ -20,8 +20,8 @@ systems:
   - name: qwen3-30b-a3b
     role: onprem
     driver: openai_compatible
-    base_url: "http://localhost:8001/v1"     # AWQ 4-bit on L4/A10 24GB
-    model_id: "Qwen/Qwen3-30B-A3B-Instruct-2507-AWQ"
+    base_url: "http://localhost:8001/v1"     # vLLM, AWQ 4-bit on L4 24GB
+    model_id: "cyankiwi/Qwen3-30B-A3B-Instruct-2507-AWQ-4bit"
     hardware: "L4 24GB"
     decoding: {temperature: 0.7, top_p: 0.8, top_k: 20, max_tokens: 1024}
 
