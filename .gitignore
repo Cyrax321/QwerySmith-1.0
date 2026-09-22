@@ -45,3 +45,8 @@ __pycache__/
 *.egg-info/
 prepared/
 runs/
+
+# raw data: downloaded by the pipeline (kagglehub/UCI), never committed
+datasets/*/raw/*.csv
+datasets/*/raw/*.xlsx
+datasets/*/raw/*.zip
