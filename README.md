@@ -110,11 +110,16 @@ claim.
 
 ## Datasets
 
-- `datasets/olist/` — Brazilian e-commerce, 9 tables. Place the Kaggle CSVs
-  in `raw/` (the one manual step). Holdout: last 6 months of orders, cutoff
-  computed mechanically at profile time.
+- `datasets/olist/` — Brazilian e-commerce, 9 tables (Kaggle; place the CSVs
+  in `raw/` — the one manual step). Holdout: last 6 months of orders, cutoff
+  computed mechanically at profile time and recorded in the manifest.
+  Systems matrix in `systems.yaml`: 8B base / 8B+adapter (3 seeds) /
+  30B-A3B AWQ / frontier (public data only).
 - `datasets/online_retail_ii/` — UCI Online Retail II, single flat table,
-  grouped two-sheet load. Same pipeline, config changes only.
+  grouped two-sheet load (export the Excel sheets as
+  `raw/Year 2009-2010.csv` and `raw/Year 2010-2011.csv` — names match
+  `table_map`). Same pipeline, config changes only; the reusability test
+  proves the shape on a synthetic twin before real data arrives.
 
 ## Adding a dataset (config only — no code changes)
 
