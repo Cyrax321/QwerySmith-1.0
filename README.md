@@ -266,4 +266,6 @@ CHANGELOG.md        what shipped, per release line
 Fine-tune recipe and evaluation discipline follow the lessons of the
 QwerySmith 1.0/1.1 review: single-variable comparisons, 3 seeds, scorable
 denominators, paired tests, and failure folders with one-line reasons.
-See `PLAN.md` for the full design document.
+See `PLAN.md` for the full design document, `CHANGELOG.md` for what
+shipped, and `notebooks/t4_train.ipynb` / `notebooks/eval_servers.ipynb`
+for the operational execution path (T4 training, L4 eval).
