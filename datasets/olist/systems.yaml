@@ -1,0 +1,35 @@
+# Eval matrix — Olist (plan §5.2). Roles are fixed; endpoints are config.
+# Frontier is sanctioned here because Olist is PUBLIC data.
+systems:
+  - name: qwen3-8b-base
+    role: baseline
+    driver: openai_compatible
+    base_url: "http://localhost:8000/v1"     # vLLM serving Qwen/Qwen3-8B
+    model_id: "Qwen/Qwen3-8B"
+    hardware: "T4 16GB"
+    decoding: {temperature: 0.7, top_p: 0.8, top_k: 20, max_tokens: 1024}
+
+  - name: qwen3-8b-ft
+    role: candidate
+    driver: openai_compatible
+    base_url: "http://localhost:8000/v1"     # same server, LoRA hot-swap (plan §5.2)
+    model_id: "qwen3-8b-ft"                  # vLLM LoRA adapter name
+    hardware: "T4 16GB"
+    decoding: {temperature: 0.7, top_p: 0.8, top_k: 20, max_tokens: 1024}
+
+  - name: qwen3-30b-a3b
+    role: onprem
+    driver: openai_compatible
+    base_url: "http://localhost:8001/v1"     # AWQ 4-bit on L4/A10 24GB
+    model_id: "Qwen/Qwen3-30B-A3B-Instruct-2507-AWQ"
+    hardware: "L4 24GB"
+    decoding: {temperature: 0.7, top_p: 0.8, top_k: 20, max_tokens: 1024}
+
+  - name: frontier
+    role: reference
+    driver: openai_compatible
+    base_url: "https://api.example.com/v1"   # pinned frontier endpoint; replace at run time
+    model_id: "<pinned-frontier-model>"
+    api_key_env: "FRONTIER_API_KEY"
+    hardware: "API"
+    decoding: {temperature: 0.7, top_p: 0.8, max_tokens: 1024}

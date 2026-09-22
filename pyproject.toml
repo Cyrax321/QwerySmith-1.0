@@ -1,0 +1,26 @@
+[project]
+name = "qwery-smith"
+version = "3.0.0"
+description = "Reusable text-to-SQL evaluation and fine-tuning harness"
+requires-python = ">=3.11"
+dependencies = [
+    "sqlglot>=25.0",
+    "sqlalchemy>=2.0",
+    "typer>=0.12",
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.2"]
+ml = ["unsloth", "trl", "datasets", "torch", "peft", "transformers", "accelerate", "bitsandbytes", "matplotlib"]
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["qwery_smith*"]

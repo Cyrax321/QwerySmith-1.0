@@ -1,0 +1,115 @@
+# Olist Brazilian E-Commerce — dataset config (the ONLY place Olist specifics live)
+name: olist
+version: 1.0.0
+license: "CC BY-NC-SA 4.0 (Olist, via Kaggle)"
+source_url: "https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce"
+created_with_seed: 42
+question_file: "questions_v1.jsonl"
+retrieval_top_k: 8
+statement_timeout_sec: 30.0
+
+holdout:
+  column: "orders.order_purchase_timestamp"
+  months: 6
+
+datasource:
+  dialect: "sqlite"           # dev/local; switch uri+dialect to postgres for canonical runs
+  uri: "sqlite:///datasets/olist/prepared/olist.db"
+  csv_dir: "raw"
+  csv_pattern: "olist_*.csv"
+  table_map:
+    olist_customers_dataset: customers
+    olist_geolocation_dataset: geolocation
+    olist_order_items_dataset: order_items
+    olist_order_payments_dataset: order_payments
+    olist_order_reviews_dataset: order_reviews
+    olist_orders_dataset: orders
+    olist_products_dataset: products
+    olist_sellers_dataset: sellers
+    product_category_name_translation: product_category_translation
+
+  extra:
+    # Explicit column types — never inferred (plan §4.1)
+    columns:
+      customers:
+        customer_id: TEXT
+        customer_unique_id: TEXT
+        customer_zip_code_prefix: INTEGER
+        customer_city: TEXT
+        customer_state: TEXT
+      geolocation:
+        geolocation_zip_code_prefix: INTEGER
+        geolocation_lat: REAL
+        geolocation_lng: REAL
+        geolocation_city: TEXT
+        geolocation_state: TEXT
+      order_items:
+        order_id: TEXT
+        order_item_id: INTEGER
+        product_id: TEXT
+        seller_id: TEXT
+        shipping_limit_date: TIMESTAMP
+        price: REAL
+        freight_value: REAL
+      order_payments:
+        order_id: TEXT
+        payment_sequential: INTEGER
+        payment_type: TEXT
+        payment_installments: INTEGER
+        payment_value: REAL
+      order_reviews:
+        review_id: TEXT
+        order_id: TEXT
+        review_score: INTEGER
+        review_comment_title: TEXT
+        review_comment_message: TEXT
+        review_creation_date: TIMESTAMP
+        review_answer_timestamp: TIMESTAMP
+      orders:
+        order_id: TEXT
+        customer_id: TEXT
+        order_status: TEXT
+        order_purchase_timestamp: TIMESTAMP
+        order_approved_at: TIMESTAMP
+        order_delivered_carrier_date: TIMESTAMP
+        order_delivered_customer_date: TIMESTAMP
+        order_estimated_delivery_date: TIMESTAMP
+      products:
+        product_id: TEXT
+        product_category_name: TEXT
+        product_name_lenght: INTEGER
+        product_description_lenght: INTEGER
+        product_photos_qty: INTEGER
+        product_weight_g: INTEGER
+        product_length_cm: INTEGER
+        product_height_cm: INTEGER
+        product_width_cm: INTEGER
+      sellers:
+        seller_id: TEXT
+        seller_zip_code_prefix: INTEGER
+        seller_city: TEXT
+        seller_state: TEXT
+      product_category_translation:
+        product_category_name: TEXT
+        product_category_name_english: TEXT
+
+    primary_keys:
+      customers: [customer_id]
+      geolocation: [geolocation_zip_code_prefix, geolocation_lat, geolocation_lng]  # not unique; declared best-effort
+      order_items: [order_id, order_item_id]
+      order_payments: [order_id, payment_sequential]
+      order_reviews: [review_id]
+      orders: [order_id]
+      products: [product_id]
+      sellers: [seller_id]
+      product_category_translation: [product_category_name]
+
+    # Declared best-effort; loader reports orphans without failing (plan §4.1)
+    foreign_keys:
+      - {table: orders,        column: customer_id,  ref_table: customers,  ref_column: customer_id}
+      - {table: order_items,   column: order_id,     ref_table: orders,     ref_column: order_id}
+      - {table: order_items,   column: product_id,  ref_table: products,   ref_column: product_id}
+      - {table: order_items,   column: seller_id,   ref_table: sellers,    ref_column: seller_id}
+      - {table: order_payments, column: order_id,     ref_table: orders,     ref_column: order_id}
+      - {table: order_reviews, column: order_id,     ref_table: orders,     ref_column: order_id}
+      - {table: products,      column: product_category_name, ref_table: product_category_translation, ref_column: product_category_name}

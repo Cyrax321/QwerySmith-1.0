@@ -35,3 +35,12 @@ ENV/
 # Temporary clones
 .profile_tmp/
 
+
+# v3 harness artifacts
+datasets/*/prepared/
+__pycache__/
+.pytest_cache/
+.venv/
+
+*.egg-info/
+prepared/
