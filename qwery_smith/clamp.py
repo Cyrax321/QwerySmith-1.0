@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Any
 
 from .adapters.guard import assert_safe_select
 from .config import HoldoutConfig

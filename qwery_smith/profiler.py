@@ -3,8 +3,6 @@ holdout cutoff. Output is the YAML artifact question authors use to tag splits."
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
