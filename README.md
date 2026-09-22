@@ -77,6 +77,8 @@ from empty; row order matters only for `ORDER BY ... LIMIT` gold.
 | Held-out data never trains | Clamped-shadow DB: a question is `heldout` iff its gold result changes when the time window is removed. Same primitive re-checks every `train_ok` question at validate time. Tested against subqueries, `NOT EXISTS`, `HAVING` shifts. |
 | Uncited answers are wrong | Citation parser + pack-membership verification in the scorer; correct-rows-but-uncited scores `missing_citation`. |
 | Identical questions & retrieval | Evidence packs frozen per question (SHA-256, gzip), loaded read-only by every system. |
+| Consistency is real, not pinned | Each of the 5 consistency runs sends a distinct seed to the driver and the seed is recorded in the raw output — flip rate can't be silently zero. |
+| Question-set identity | `validate` writes the versioned manifest: seed, counts, licence, DB fingerprint, frozen cutoff — drift between it and the questions is detectable. |
 | SQL safety | sqlglot AST guard (SELECT-only; blocks CTE-hidden mutations, `SELECT INTO`, stacked statements) + read-only role + statement timeout. |
 | One result of record | Reports render from captured run artifacts (`*__summary.json`, `headline_results.json`), never recompute from memory. |
 | Same gate everywhere | Pre-registered: row 2 passes iff within 5 EX points of frontier AND no worse on flip rate. Same table format for every dataset. |
