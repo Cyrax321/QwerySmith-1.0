@@ -97,6 +97,14 @@ def build_clamped_sqlite(
                 continue
             mem.execute(ddl_row[0])
             mem.execute(f'INSERT INTO "{tname}" {sel}')
+            # shadow indexes: unindexed joins against the clamped tables made
+            # window_dependent() take minutes on real data (nested loop on
+            # 100k-row fact tables). Copy the source's indexes for this table.
+            for idx_row in src.execute(
+                "SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name = ? AND sql IS NOT NULL",
+                (tname,),
+            ).fetchall():
+                mem.execute(idx_row[0])
     finally:
         src.close()
     return _ClampedExecutor(mem)

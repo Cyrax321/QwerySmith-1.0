@@ -123,6 +123,8 @@ def author(
                 split=split,
                 source="template+human-verified",  # downgraded to 'human' only after review
             ))
+            if (i + 1) % 10 == 0 or i + 1 == len(candidates):
+                typer.echo(f"  {i + 1}/{len(candidates)} window-checked ({n_heldout} heldout so far)")
         qs.save(out_path)
 
         typer.secho(f"drafted {len(candidates)} questions -> {out_path}", fg=typer.colors.GREEN)
