@@ -206,6 +206,32 @@ def validate(
         typer.echo(res.summary())
         if res.ok:
             typer.secho(f"OK — {res.scorable} scorable questions", fg=typer.colors.GREEN)
+            # write the versioned manifest (plan §3.2): seed, counts, licence,
+            # db_fingerprint, frozen holdout cutoff — the question-set's identity card
+            from .profiler import compute_holdout_cutoff
+            from .questions import write_manifest
+            from .schema_loader import load_schema
+
+            schema = load_schema(adapter)
+            holdout_block = None
+            if cfg.holdout is not None:
+                _mx, cutoff = compute_holdout_cutoff(adapter, cfg.holdout)
+                holdout_block = {"column": cfg.holdout.column,
+                                 "months": cfg.holdout.months, "cutoff": cutoff}
+            manifest_path = cfg.question_file.parent / "prepared" / "manifest.yaml"
+            write_manifest(
+                manifest_path,
+                name=cfg.name,
+                version="1.0.0",
+                license_=cfg.license,
+                source_url=cfg.source_url,
+                seed=cfg.seed,
+                questions_path=cfg.question_file,
+                db_fingerprint=schema.fingerprint(),
+                holdout=holdout_block,
+                counts=qs.counts(),
+            )
+            typer.secho(f"manifest written: {manifest_path}", fg=typer.colors.GREEN)
         else:
             typer.secho(f"FAILED — {len(res.excluded)} blocking issues", fg=typer.colors.RED)
             raise typer.Exit(1)
