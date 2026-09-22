@@ -1,5 +1,9 @@
 # QwerySmith v3.0 — Reusable Text-to-SQL Evaluation & Fine-Tuning Harness
 
+[![tests](https://github.com/Cyrax321/QwerySmith-1.0/actions/workflows/tests.yml/badge.svg)](https://github.com/Cyrax321/QwerySmith-1.0/actions/workflows/tests.yml)
+![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
+![License](https://img.shields.io/badge/license-Apache--2.0-green)
+
 Turns any relational database with history into a question-answering system
 that answers with citations, and measures small fine-tuned models against
 larger ones — on identical questions and identical retrieval.
