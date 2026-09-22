@@ -186,6 +186,19 @@ reads "published for provenance, not as a recommended model").
 Every step writes its artifacts under `runs/` or `datasets/<name>/prepared/`;
 `report` reads only captured output — nothing is recomputed from memory.
 
+## Secrets & security
+
+- **Tokens never live in the repo.** Local: `.env` (gitignored, auto-loaded;
+  real environment variables win). Colab: the secret manager (`HF_TOKEN`,
+  `FRONTIER_API_KEY`) — read via `userdata.get`, never pasted into cells.
+- **Model-generated SQL executes sandboxed**: read-only role,
+  `statement_timeout` (30 s), sqlglot AST guard (SELECT-only; blocks
+  CTE-hidden mutations, `SELECT INTO`, stacked statements) before any
+  execution. Guarded against comment-obfuscation and string-literal
+  false-positives by tests.
+- **Eval isolation**: gold SQL / expected rows are physically separate from
+  the retrieval path — the retriever sees question text only.
+
 ## Repository layout
 
 ```
