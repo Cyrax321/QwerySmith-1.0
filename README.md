@@ -71,7 +71,7 @@ a "system" is just a callable from a prompt to raw output.
 
 ```bash
 uv sync --group dev --extra postgres
-uv run pytest tests_v3          # 91 tests
+uv run pytest tests_v3          # 110 tests
 ```
 
 Adapters: SQLite (dev default) and Postgres (canonical) behind one
