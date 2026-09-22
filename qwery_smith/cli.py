@@ -35,6 +35,90 @@ def version() -> None:
 
 
 @app.command()
+def author(
+    dataset: str = typer.Argument(...),
+    root: Optional[Path] = typer.Option(None),
+    n: int = typer.Option(20, help="number of candidates to generate"),
+    seed: int = typer.Option(1, help="authoring seed"),
+    out: Optional[Path] = typer.Option(None, help="draft output (default prepared/questions_draft.jsonl)"),
+    force: bool = typer.Option(False, help="overwrite an existing draft"),
+) -> None:
+    """Stage 0: generate draft questions with validated gold + mechanical splits (plan §5.1).
+
+    Splits are assigned by the clamped-shadow rule: a question is 'heldout'
+    iff its gold result differs when the holdout window is removed. The author
+    reviews/edits the file; `validate` re-checks everything afterwards.
+    """
+    cfg = _load(dataset, root)
+    from datetime import date as _date
+
+    from .adapters import open_adapter
+    from .authoring import generate_candidates
+    from .clamp import build_clamped, window_dependent
+    from .profiler import compute_holdout_cutoff
+    from .questions import ExpectedRows, Question, QuestionSet, canonical_rows_hash
+    from .schema_loader import load_schema
+
+    base = root or Path.cwd()
+    out_path = out or (
+        base / DATASETS_ROOT / cfg.name / "prepared" / "questions_draft.jsonl"
+    )
+    if out_path.exists() and not force:
+        typer.secho(f"draft exists ({out_path}); use --force to overwrite", fg=typer.colors.YELLOW)
+        raise typer.Exit(2)
+
+    adapter = open_adapter(cfg.datasource.uri, read_only=True)
+    try:
+        schema = load_schema(adapter)
+        candidates = generate_candidates(adapter, schema, cfg, n=n, seed=seed)
+        if not candidates:
+            typer.secho("no candidates generated — check schema/facts", fg=typer.colors.RED)
+            raise typer.Exit(2)
+
+        cutoff_iso = None
+        clamped = None
+        if cfg.holdout:
+            _max, cutoff_iso = compute_holdout_cutoff(adapter, cfg.holdout)
+            clamped = build_clamped(adapter, schema, cfg.holdout, cutoff_iso)
+
+        qs = QuestionSet()
+        n_heldout = 0
+        for i, cand in enumerate(candidates):
+            rows, cols, _ = adapter.safe_execute(cand.gold_sql)
+            sha, n_rows = canonical_rows_hash(rows, cols)
+            split = "train_ok"
+            if clamped is not None:
+                if window_dependent(cand.gold_sql, sha, clamped):
+                    split = "heldout"
+                    n_heldout += 1
+            qs.add(Question(
+                id=f"{cfg.name}-{i + 1:04d}",
+                question=cand.question,
+                gold_sql=cand.gold_sql,
+                expected_rows=ExpectedRows(sha256=sha, n_rows=n_rows),
+                date=_date.today().isoformat(),
+                difficulty=cand.difficulty,
+                category=cand.category,
+                split=split,
+                source="template+human-verified",  # downgraded to 'human' only after review
+            ))
+        qs.save(out_path)
+
+        typer.secho(f"drafted {len(candidates)} questions -> {out_path}", fg=typer.colors.GREEN)
+        if cfg.holdout:
+            typer.echo(f"  holdout cutoff: {cutoff_iso}")
+            typer.echo(f"  window-dependent (=> heldout): {n_heldout}")
+            typer.echo(f"  window-independent (=> train_ok): {len(candidates) - n_heldout}")
+        typer.echo(
+            "\nNEXT: human review — rewrite questions for natural phrasing, verify gold"
+            "\nSQL by eye, then set source='human' per question and move the file to"
+            "\nquestions_v1.jsonl. `validate` re-checks everything."
+        )
+    finally:
+        adapter.close()
+
+
+@app.command()
 def ingest(
     dataset: str = typer.Argument(..., help="dataset name under datasets/"),
     root: Optional[Path] = typer.Option(None, help="repo root (default cwd)"),

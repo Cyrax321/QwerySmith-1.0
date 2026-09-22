@@ -62,10 +62,12 @@ class DatasetConfig:
 
         # sqlite URIs are dataset-relative: resolve against the dataset dir so
         # `python -m qwery_smith ingest olist` works from any cwd.
+        # Absolute paths must keep the 4-slash hostless form.
         uri = raw["datasource"]["uri"]
         if uri.startswith("sqlite:///") and not uri.startswith("sqlite:////"):
             rel = uri.split("sqlite:///", 1)[1]
-            uri = f"sqlite:///{(base / rel)}"
+            resolved = base / rel
+            uri = f"sqlite:///{resolved}" if not str(resolved).startswith("/") else f"sqlite:////{resolved}"
 
         try:
             ds = raw["datasource"]
@@ -80,7 +82,7 @@ class DatasetConfig:
                     csv_dir=base / ds["csv_dir"],
                     csv_pattern=ds["csv_pattern"],
                     table_map=dict(ds["table_map"]),
-                    uri=ds["uri"],
+                    uri=uri,
                     dialect=ds["dialect"],
                     extra=ds.get("extra", {}),
                 ),

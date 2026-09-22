@@ -60,59 +60,37 @@ class ValidationResult:
         return "\n".join(lines)
 
 
-def _leak_guarded_sql(q: Question, holdout: HoldoutConfig, cutoff: str) -> str:
-    """Plan §4.4 check #1: inject a cutoff guard into gold SQL via sqlglot.
-
-    Builds `... AND <table>.<col> < cutoff` on the outermost SELECT (adds a
-    WHERE if absent). If the guarded result differs from the stored result,
-    the question can see the held-out window => leak.
-    """
-    import sqlglot
-    from sqlglot import exp
-
-    tree = sqlglot.parse_one(q.gold_sql, read="postgres")
-    select = tree if isinstance(tree, exp.Select) else tree.find(exp.Select)
-    if select is None:
-        raise HoldoutLeakError(f"{q.id}: cannot find SELECT to guard")
-
-    lt = exp.LT(
-        this=exp.column(holdout.col, table=holdout.table),
-        expression=exp.Literal.string(cutoff),
-    )
-    where = select.args.get("where")
-    if where is None:
-        select.where(lt, copy=False)
-    else:
-        select.where(exp.and_(where.this, lt), copy=False)
-    return tree.sql(dialect="postgres")
-
-
 def check_holdout_leak(
     qs: QuestionSet,
     adapter: DatabaseAdapter,
+    schema,
     holdout: HoldoutConfig,
     cutoff_iso: str,
 ) -> list[QuestionFailure]:
-    """§4.4: for each train_ok question, guarded gold must match stored hash."""
+    """§4.4: for each train_ok question, execute gold against the clamped
+    shadow (holdout window removed). Result must be UNCHANGED; any difference
+    means the question reads the held-out window => leak."""
+    from .clamp import build_clamped, window_dependent
+
     failures: list[QuestionFailure] = []
-    for q in qs.questions:
-        if q.split != "train_ok":
-            continue
-        try:
-            guarded = _leak_guarded_sql(q, holdout, cutoff_iso)
-            rows, cols, _ = adapter.safe_execute(guarded, timeout_sec=30.0)
-            sha, _n = canonical_rows_hash(rows, cols)
-        except HoldoutLeakError as e:
-            failures.append(QuestionFailure(q.id, "holdout_leak", str(e)))
-            continue
-        except Exception as e:
-            failures.append(QuestionFailure(q.id, "holdout_leak", f"guarded gold failed: {type(e).__name__}: {e}"))
-            continue
-        if sha != q.expected_rows.sha256:
-            failures.append(QuestionFailure(
-                q.id, "holdout_leak",
-                "guarded result differs from stored => question reads the held-out window",
-            ))
+    clamped = build_clamped(adapter, schema, holdout, cutoff_iso)
+    try:
+        for q in qs.questions:
+            if q.split != "train_ok":
+                continue
+            try:
+                if window_dependent(q.gold_sql, q.expected_rows.sha256, clamped):
+                    failures.append(QuestionFailure(
+                        q.id, "holdout_leak",
+                        "clamped result differs => question reads the held-out window",
+                    ))
+            except Exception as e:
+                failures.append(QuestionFailure(
+                    q.id, "holdout_leak",
+                    f"clamped execution failed: {type(e).__name__}: {e}",
+                ))
+    finally:
+        clamped.close()
     return failures
 
 
@@ -121,6 +99,7 @@ def validate_question_set(
     adapter: DatabaseAdapter,
     holdout: Optional[HoldoutConfig] = None,
     cutoff_iso: Optional[str] = None,
+    schema=None,
 ) -> ValidationResult:
     res = ValidationResult(scorable=0)
 
@@ -167,9 +146,13 @@ def validate_question_set(
         res.scorable += 1
         res.split_counts[q.split] = res.split_counts.get(q.split, 0) + 1
 
-    # 3. holdout-leak check (§4.4) — train_ok questions only
+    # 3. holdout-leak check (§4.4) — train_ok questions only, clamped-shadow rule
     if holdout is not None:
-        res.excluded.extend(check_holdout_leak(qs, adapter, holdout, cutoff_iso))
+        if schema is None:
+            from .schema_loader import load_schema
+
+            schema = load_schema(adapter)
+        res.excluded.extend(check_holdout_leak(qs, adapter, schema, holdout, cutoff_iso))
         # recompute scorable: leaked questions must not count
         leaked_ids = {f.id for f in res.excluded if f.check == "holdout_leak"}
         if leaked_ids:
