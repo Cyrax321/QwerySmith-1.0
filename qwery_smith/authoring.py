@@ -65,14 +65,16 @@ def discover_facts(
                 n = adapter.scalar(f'SELECT COUNT(DISTINCT "{c}") FROM "{tname}"')
                 if n is not None and n[0] is not None and n[0] <= max_cardinality and n[0] >= 2:
                     facts.categorical_cols.setdefault(tname, []).append(c)
-        # sample pks
+        # sample pks (handles multi-column pk tuples and scalars)
         if t.primary_key:
             pk_cols = ", ".join(f'"{c}"' for c in t.primary_key)
             rows = adapter.execute(
                 f'SELECT {pk_cols} FROM "{tname}" ORDER BY RANDOM() LIMIT 3',
                 max_rows=3,
             )[0]
-            facts.sample_pks[tname] = [r if len(t.primary_key) > 1 else r[0] for r in rows]
+            facts.sample_pks[tname] = [
+                tuple(r) if len(t.primary_key) > 1 else r[0] for r in rows
+            ]
     facts.fk_edges = [(e.table, e.column, e.ref_table, e.ref_column) for e in schema.fk_edges]
     return facts
 
@@ -89,16 +91,15 @@ def _quote(v: Any) -> str:
 
 def gen_per_order_lookup(facts: SchemaFacts, adapter, cfg, rng) -> Optional[Candidate]:
     """A lookup about one entity: 'status of order X' — pk equality filter."""
-    # find tables with a single-column pk and >= 4 columns
     for tname in facts.sample_pks:
         pk = facts.pk_by_table[tname]
         if len(pk) != 1:
-            continue
+            continue  # multi-column pk: lookup templates need a single key
         cols = [c for c, _ in facts.columns[tname] if c != pk[0]]
         if not cols:
             continue
         target = rng.choice(cols)
-        vals = facts.sample_pks[tname]
+        vals = [v for v in facts.sample_pks[tname] if not isinstance(v, tuple)]
         if not vals:
             continue
         pk_val = rng.choice(vals)
@@ -173,7 +174,7 @@ def gen_multi_table_join(facts: SchemaFacts, adapter, cfg, rng) -> Optional[Cand
 
 
 def gen_review_text(facts: SchemaFacts, adapter, cfg, rng) -> Optional[Candidate]:
-    """Questions requiring review/comment text: ILIKE on a text column with a
+    """Questions requiring review/comment text: LIKE on a text column with a
     curated keyword, joined to a category aggregate."""
     # find a table with long text columns that is FK-linked to a parent
     for tname in facts.text_cols:
@@ -183,15 +184,34 @@ def gen_review_text(facts: SchemaFacts, adapter, cfg, rng) -> Optional[Candidate
         )
         # find an FK from this table to elsewhere (to build a join)
         fks = [(c, rt, rc) for (tb, c, rt, rc) in facts.fk_edges if tb == tname]
-        if not fks or not adapter_rows or not adapter_rows[0][0]:
+        if not adapter_rows or not adapter_rows[0][0]:
             continue
+        if not fks:
+            # single-table datasets (no FK graph): category aggregate over
+            # text-matching rows of the same table — still a review-text question
+            keywords = cfg.extra.get("authoring", {}).get("review_keywords") or [
+                "broken", "late", "good", "never arrived",
+            ]
+            kw = _safe_keyword(rng.choice(keywords))
+            cats = facts.categorical_cols.get(tname)
+            if not cats:
+                return None
+            cat = rng.choice(cats)
+            sql = (
+                f'SELECT "{cat}", COUNT(*) AS n\n'
+                f'FROM "{tname}"\n'
+                f'WHERE "{text_col}" LIKE \'%{kw}%\'\n'
+                f'GROUP BY "{cat}"\n'
+                f'ORDER BY n DESC'
+            )
+            q = f"Count of {tname} records whose {text_col.replace('_', ' ')} mention '{kw}', by {cat.replace('_', ' ')}."
+            return Candidate(q, sql, "review_text", "hard", {"table": tname, "keyword": kw})
+        c, rt, rc = rng.choice(fks)
         keywords = cfg.extra.get("authoring", {}).get("review_keywords") or [
             "broken", "late", "good", "never arrived",
         ]
-        kw = rng.choice(keywords)
-        c, rt, rc = rng.choice(fks)
+        kw = _safe_keyword(rng.choice(keywords))
         parent_cat = (facts.categorical_cols.get(rt) or [rc])[0]
-        pk = facts.pk_by_table.get(rt, (rc,))[0]
         sql = (
             f"SELECT d.\"{parent_cat}\", COUNT(*) AS n\n"
             f"FROM \"{tname}\" r\n"
@@ -203,6 +223,11 @@ def gen_review_text(facts: SchemaFacts, adapter, cfg, rng) -> Optional[Candidate
         q = f"Count of {tname} records whose {text_col.replace('_', ' ')} mention '{kw}', by {parent_cat.replace('_', ' ')}."
         return Candidate(q, sql, "review_text", "hard", {"table": tname, "keyword": kw})
     return None
+
+
+def _safe_keyword(kw: str) -> str:
+    """Keywords are inlined into LIKE patterns — strip quote wildcards."""
+    return str(kw).replace("'", "").replace("%", "").replace("_", "")
 
 
 GENERATORS: dict[str, Callable] = {

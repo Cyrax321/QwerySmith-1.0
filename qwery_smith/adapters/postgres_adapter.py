@@ -71,14 +71,19 @@ class PostgresAdapter(DatabaseAdapter):
             raise UnsafeSQLError(reason)
         return self.execute(sql, timeout_sec=timeout_sec, max_rows=max_rows)
 
-    def load_csv(self, table: str, csv_path: Path, columns: dict[str, str]) -> int:
+    def load_csv(self, table: str, csv_path: Path, columns: dict[str, str], append: bool = False) -> int:
         if self.read_only:
             raise HarnessError("load_csv requires a read-write connection (ingest only)")
         cur = self.conn.cursor()
         try:
-            cur.execute(f'DROP TABLE IF EXISTS "{table}" CASCADE')
-            ddl_cols = ", ".join(f'"{n}" {_PG_TYPES.get(t.upper(), "text")}' for n, t in columns.items())
-            cur.execute(f'CREATE TABLE "{table}" ({ddl_cols})')
+            exists = cur.execute(
+                "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = %s",
+                (table,),
+            ).fetchone() is not None
+            if not (append and exists):
+                cur.execute(f'DROP TABLE IF EXISTS "{table}" CASCADE')
+                ddl_cols = ", ".join(f'"{n}" {_PG_TYPES.get(t.upper(), "text")}' for n, t in columns.items())
+                cur.execute(f'CREATE TABLE "{table}" ({ddl_cols})')
             with open(csv_path, newline="", encoding="utf-8-sig") as f:
                 reader = csv.reader(f)
                 header = next(reader)

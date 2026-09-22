@@ -43,8 +43,13 @@ class DatabaseAdapter(ABC):
         ...
 
     @abstractmethod
-    def load_csv(self, table: str, csv_path: Path, columns: dict[str, str]) -> int:
-        """Load one CSV into `table` (created from `columns` name->DDL type). Returns row count."""
+    def load_csv(self, table: str, csv_path: Path, columns: dict[str, str], append: bool = False) -> int:
+        """Load one CSV into `table` (created from `columns` name->DDL type).
+
+        append=True: append to an existing table (grouped multi-file loads,
+        e.g. UCI Online Retail II's two sheets); first file creates.
+        Returns row count loaded from THIS file.
+        """
         ...
 
     @abstractmethod

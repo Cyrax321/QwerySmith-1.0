@@ -58,13 +58,17 @@ class SQLiteAdapter(DatabaseAdapter):
         finally:
             cur.close()
 
-    def load_csv(self, table: str, csv_path: Path, columns: dict[str, str]) -> int:
+    def load_csv(self, table: str, csv_path: Path, columns: dict[str, str], append: bool = False) -> int:
         csv_path = Path(csv_path)
-        ddl_cols = ", ".join(
-            f'"{name}" {_TYPE_MAP.get(t.upper(), "TEXT")}' for name, t in columns.items()
-        )
-        self.conn.execute(f'DROP TABLE IF EXISTS "{table}"')
-        self.conn.execute(f'CREATE TABLE "{table}" ({ddl_cols})')
+        exists = self.conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?", (table,)
+        ).fetchone() is not None
+        if not (append and exists):
+            self.conn.execute(f'DROP TABLE IF EXISTS "{table}"')
+            ddl_cols = ", ".join(
+                f'"{name}" {_TYPE_MAP.get(t.upper(), "TEXT")}' for name, t in columns.items()
+            )
+            self.conn.execute(f'CREATE TABLE "{table}" ({ddl_cols})')
         placeholders = ", ".join("?" for _ in columns)
         col_names = ", ".join(f'"{c}"' for c in columns)
         n = 0

@@ -169,6 +169,15 @@ def validate_question_set(
 # -- ingest ---------------------------------------------------------------
 
 
+def _columns_for(cfg, table: str, csv_path: Path) -> dict[str, str]:
+    """Explicit types from config; header-inferred TEXT as fallback."""
+    cols = cfg.datasource.extra.get("columns", {}).get(table)
+    if cols:
+        return cols
+    with open(csv_path, newline="", encoding="utf-8-sig") as f:
+        return {h: "TEXT" for h in next(_csv.reader(f))}
+
+
 def ingest_dataset(cfg, adapter) -> dict[str, int]:
     """Load raw CSVs into the database per datasource config (plan §4.1).
 
@@ -179,13 +188,22 @@ def ingest_dataset(cfg, adapter) -> dict[str, int]:
 
     counts: dict[str, int] = {}
     for csv_stem, table in cfg.datasource.table_map.items():
+        if isinstance(table, list):
+            # grouped load: multiple files append into one table (plan §8.1 —
+            # e.g. Online Retail II's two Excel sheets land in one table)
+            total = 0
+            for j, stem in enumerate(table):
+                csv_path = Path(cfg.datasource.csv_dir) / f"{stem}.csv"
+                if not csv_path.exists():
+                    raise FileNotFoundError(csv_path)
+                cols = _columns_for(cfg, table=csv_stem, csv_path=csv_path)
+                total += adapter.load_csv(csv_stem, csv_path, cols, append=(j > 0))
+            counts[csv_stem] = total
+            continue
         csv_path = Path(cfg.datasource.csv_dir) / f"{csv_stem}.csv"
         if not csv_path.exists():
             raise FileNotFoundError(csv_path)
-        cols = cfg.datasource.extra.get("columns", {}).get(table)
-        if not cols:
-            with open(csv_path, newline="", encoding="utf-8-sig") as f:
-                cols = {h: "TEXT" for h in next(_csv.reader(f))}
+        cols = _columns_for(cfg, table=table, csv_path=csv_path)
         counts[table] = adapter.load_csv(table, csv_path, cols)
 
     for table, pk_cols in cfg.datasource.extra.get("primary_keys", {}).items():

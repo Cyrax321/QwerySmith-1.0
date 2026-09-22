@@ -1,0 +1,51 @@
+# UCI Online Retail II — Part 3 reusability dataset (plan §8.1).
+# Config changes ONLY relative to Olist — zero harness code changes.
+# Raw data: https://archive.ics.uci.edu/dataset/502/online+retail+ii
+# (two Excel sheets; export each as UTF-8 CSV into raw/)
+name: online_retail_ii
+version: 1.0.0
+license: "CC BY 4.0 (UCI Machine Learning Repository)"
+source_url: "https://archive.ics.uci.edu/dataset/502/online+retail+ii"
+created_with_seed: 42
+question_file: "questions_v1.jsonl"
+retrieval_top_k: 8
+statement_timeout_sec: 30.0
+
+holdout:
+  column: "online_retail.InvoiceDate"
+  months: 6
+
+datasource:
+  dialect: "sqlite"
+  uri: "sqlite:///prepared/online_retail_ii.db"
+  csv_dir: "raw"
+  csv_pattern: "*.csv"
+  table_map:
+    # grouped load: both sheets append into ONE table (harness feature, config-declared)
+    online_retail:
+      - "Year 2009-2010"
+      - "Year 2010-2011"
+
+  extra:
+    columns:
+      online_retail:
+        InvoiceNo: TEXT
+        StockCode: TEXT
+        Description: TEXT
+        Quantity: INTEGER
+        InvoiceDate: TIMESTAMP
+        UnitPrice: REAL
+        CustomerID: TEXT        # UCI floats them ("17850.0"); TEXT keeps fidelity
+        Country: TEXT
+
+    primary_keys:
+      online_retail: [InvoiceNo, StockCode]   # best-effort; invoice lines may repeat
+
+    foreign_keys: []           # single flat table — no FK graph (the point)
+
+    authoring:
+      review_keywords:
+        - "SET"                # giftware SETs; high-frequency description token
+        - "RED"
+        - "HEART"
+        - "VINTAGE"
