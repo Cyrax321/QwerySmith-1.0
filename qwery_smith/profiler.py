@@ -53,9 +53,9 @@ def compute_holdout_cutoff(
     Returns (max_value, cutoff) as ISO strings. Pure function of data — not of
     anyone's judgment (that's the whole point).
     """
-    q = f'SELECT MIN("{holdout.col}"), MAX("{holdout.col}") FROM "{holdout.table}"'
+    q = f'SELECT MAX("{holdout.col}") FROM "{holdout.table}"'
     row = adapter.scalar(q)
-    lo, hi = row[0], row[1]
+    hi = row[0]
     if hi is None:
         raise ProfileError(f"holdout column {holdout.column} has no values")
 
