@@ -94,6 +94,20 @@ from empty; row order matters only for `ORDER BY ... LIMIT` gold.
 All four run through one code path (`qwery_smith.evaluate.run_system`);
 a "system" is just a callable from a prompt to raw output.
 
+## Hardware (plan §8.3)
+
+| Workload | Machine | Notes |
+|---|---|---|
+| Prep stages (ingest→triples) | any CPU | minutes |
+| Row 1–2 inference (8B) | T4 16 GB | 4-bit; LoRA hot-swapped per seed |
+| QLoRA training ×3 seeds | T4 16 GB | ~40–60 min/seed (Colab) |
+| Row 3 (30B-A3B AWQ) | L4 24 GB | ~17 GB weights; sequential with 8B, never co-resident |
+| Frontier row | API | public data only; model version pinned in the manifest |
+
+Every run writes `train_record.json` / `__summary.json` with GPU, VRAM and
+package versions — "state what ran on what" is a captured artifact, not a
+claim.
+
 ## Datasets
 
 - `datasets/olist/` — Brazilian e-commerce, 9 tables. Place the Kaggle CSVs
