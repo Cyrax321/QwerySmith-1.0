@@ -38,20 +38,31 @@ class SchemaFacts:
     numeric_cols: dict[str, list[str]]             # table -> [numeric col names]
     categorical_cols: dict[str, list[str]]         # low-cardinality text cols
     sample_pks: dict[str, list[tuple]]             # table -> sampled pk values
+    sample_values: dict[str, list[str]] = field(default_factory=dict)  # col -> cached samples
+
+
+def _excluded_tables(cfg) -> set[str]:
+    """Tables to skip in fact discovery (config-driven). High-volume
+    denormalized tables (e.g. Olist geolocation, 1M rows) poison categorical
+    scans and add nothing to question authoring."""
+    return set(cfg.extra.get("authoring", {}).get("exclude_tables", []))
 
 
 def discover_facts(
-    adapter: DatabaseAdapter, schema, max_cardinality: int = 60
+    adapter: DatabaseAdapter, schema, cfg=None, max_cardinality: int = 60
 ) -> SchemaFacts:
+    excluded = _excluded_tables(cfg) if cfg is not None else set()
     facts = SchemaFacts(
         pk_by_table={}, fk_edges=[], columns={}, date_cols={}, text_cols={},
         numeric_cols={}, categorical_cols={}, sample_pks={},
     )
     for tname in sorted(schema.tables):
+        if tname in excluded:
+            continue
         t = schema.tables[tname]
         facts.pk_by_table[tname] = t.primary_key
         facts.columns[tname] = [(c, ty) for c, ty, _ in t.columns]
-        for c, ty, _ in t.columns:
+        for c, ty, _nn in t.columns:
             if ty in ("DATE", "TIMESTAMP"):
                 facts.date_cols.setdefault(tname, []).append(c)
             elif ty in ("REAL", "NUMERIC"):
@@ -64,7 +75,7 @@ def discover_facts(
                 n = adapter.scalar(f'SELECT COUNT(DISTINCT "{c}") FROM "{tname}"')
                 if n is not None and n[0] is not None and n[0] <= max_cardinality and n[0] >= 2:
                     facts.categorical_cols.setdefault(tname, []).append(c)
-        # sample pks (handles multi-column pk tuples and scalars)
+        # sample pks
         if t.primary_key:
             pk_cols = ", ".join(f'"{c}"' for c in t.primary_key)
             rows = adapter.execute(
@@ -76,6 +87,20 @@ def discover_facts(
             ]
     facts.fk_edges = [(e.table, e.column, e.ref_table, e.ref_column) for e in schema.fk_edges]
     return facts
+
+
+def _sample_value_cached(adapter, facts, tname, col, n=25, where="IS NOT NULL AND != ''") -> str | None:
+    """Cached random distinct values for a column - the flat-table generators
+    hit this repeatedly and ORDER BY RANDOM() on 1M rows is not free."""
+    key = f"{tname}.{col}"
+    if key not in facts.sample_values:
+        rows = adapter.execute(
+            f'SELECT DISTINCT "{col}" FROM "{tname}" WHERE "{col}" {where} '
+            f"ORDER BY RANDOM() LIMIT {n}", max_rows=n,
+        )[0]
+        facts.sample_values[key] = [str(r[0]) for r in rows]
+    vals = facts.sample_values[key]
+    return vals[0] if vals else None
 
 
 # ------------------------------------------------------------ generators ---
@@ -235,7 +260,8 @@ def gen_multi_table_join(facts: SchemaFacts, adapter, cfg, rng) -> Optional[Cand
     facts.pk_by_table.get(t2, (rc2,))
     cat1 = facts.categorical_cols.get(t1) or [rc1]
     cat2 = facts.categorical_cols.get(t2) or [rc2]
-    g1, g2 = rng.choice(cat1), rng.choice(cat2)
+    g1 = rng.choice(cat1)
+    g2 = rng.choice([c for c in cat2 if c != g1] or cat2)  # never a same-column pair
     numeric = facts.numeric_cols.get(ft)
     measure = rng.choice(numeric) if numeric else "*"
     agg = f'SUM(f."{measure}")' if measure != "*" else "COUNT(*)"
@@ -355,7 +381,7 @@ def gen_review_text(facts: SchemaFacts, adapter, cfg, rng) -> Optional[Candidate
             f"SELECT d.\"{parent_cat}\", COUNT(*) AS n\n"
             f"FROM \"{tname}\" r\n"
             f"JOIN \"{rt}\" d ON r.\"{c}\" = d.\"{rc}\"\n"
-            f"WHERE r.\"{text_col}\" ILIKE '%{kw}%'\n"
+            f"WHERE LOWER(r.\"{text_col}\") LIKE LOWER('%{kw}%')\n"
             f"GROUP BY d.\"{parent_cat}\"\n"
             f"ORDER BY n DESC"
         )
@@ -381,7 +407,8 @@ def generate_candidates(
     adapter, schema, cfg: DatasetConfig, n: int, seed: Optional[int] = None, categories=None
 ) -> list[Candidate]:
     rng = random.Random(cfg.seed if seed is None else seed)
-    facts = discover_facts(adapter, schema)
+    facts = discover_facts(adapter, schema, cfg=cfg,
+                           max_cardinality=cfg.extra.get("authoring", {}).get("max_cardinality", 60))
     cats = categories or list(GENERATORS)
     out: list[Candidate] = []
     seen_sql: set[str] = set()
