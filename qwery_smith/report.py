@@ -69,6 +69,43 @@ def _wilson_ci(p: float, n: int, z: float = 1.96) -> tuple[float, float]:
     return (max(0.0, center - half), min(1.0, center + half))
 
 
+def aggregate_seeds(
+    system_summaries: list[dict[str, Any]],
+    headline_results: dict[str, list[ScoredResult]],
+) -> tuple[Optional[dict[str, Any]], Optional[str]]:
+    """Fold role='candidate_seed' rows into one candidate row (plan §7.1).
+
+    Candidate row: EX = mean over seeds; range = min..max; flip = mean;
+    agreement = mean; representative seed (median EX) used for McNemar.
+    Returns (synthesized_candidate_summary, representative_system_name).
+    """
+    seed_rows = [s for s in system_summaries if s.get("role") == "candidate_seed"]
+    if not seed_rows:
+        cand = next((s for s in system_summaries if s.get("role") == "candidate"), None)
+        return cand, (cand or {}).get("system")
+
+    exs = [s["ex_heldout"] for s in seed_rows]
+    mean_ex = sum(exs) / len(exs)
+    rep = sorted(seed_rows, key=lambda s: s["ex_heldout"])[len(seed_rows) // 2]  # median
+    candidate = {
+        "system": rep["system"],          # representative; label shows the aggregate
+        "role": "candidate",
+        "hardware": rep.get("hardware", ""),
+        "n_questions": rep["n_questions"],
+        "ex_heldout": mean_ex,
+        "ex_range": (min(exs), max(exs)),
+        "refusal_rate": sum(s.get("refusal_rate", 0.0) for s in seed_rows) / len(seed_rows),
+        "agreement": sum(s.get("agreement", 0.0) for s in seed_rows) / len(seed_rows),
+        "flip_rate": sum(s.get("flip_rate", 0.0) for s in seed_rows) / len(seed_rows),
+        "p50_latency_ms": sum(s.get("p50_latency_ms", 0.0) for s in seed_rows) / len(seed_rows),
+        "n_failures": sum(s.get("n_failures", 0) for s in seed_rows),
+        "seed_systems": [s["system"] for s in seed_rows],
+        "representative_seed": rep["system"],
+        "generated_at": rep.get("generated_at"),
+    }
+    return candidate, rep["system"]
+
+
 def render_report(
     dataset: str,
     system_summaries: list[dict[str, Any]],   # in row order 1..4; row2 may be seed-mean
@@ -78,19 +115,31 @@ def render_report(
 ) -> str:
     labels = row_labels or {}
 
+    # fold 3-seed rows into the single candidate row when present (§7.1)
+    candidate, rep_seed = aggregate_seeds(system_summaries, headline_results)
+    if candidate is not None:
+        displayed = [s for s in system_summaries if s.get("role") != "candidate_seed"]
+        if candidate not in displayed:
+            displayed.append(candidate)
+        # McNemar/gate use the representative seed's per-question results
+        headline_results = dict(headline_results)
+        if rep_seed and rep_seed in headline_results and candidate["system"] == rep_seed:
+            pass  # representative name == candidate system name; already correct
+    else:
+        displayed = system_summaries
+
     lines = [f"# Results — {dataset}", ""]
     lines.append("| System | EX held-out (95% CI) | Scorable N | Agr. | Flip | Refusal% | p50 lat (ms) | Hardware |")
     lines.append("|---|---|---|---|---|---|---|---|")
 
-    by_role = {}
-    for s in system_summaries:
-        by_role[s.get("role", s["system"])] = s
-
-    for s in system_summaries:
+    for s in displayed:
         n = s["n_questions"]
         ex = s["ex_heldout"]
         lo, hi = _wilson_ci(ex, n)
         name = labels.get(s["system"], s["system"])
+        if "ex_range" in s:
+            name = f"{name} (mean ± range, n={len(s.get('seed_systems', []))})"
+            lo, hi = s["ex_range"]
         lines.append(
             f"| {name} | {ex:.1%} ({lo:.0%}–{hi:.0%}) | {n} | "
             f"{s.get('agreement', 0):.2f} | {s.get('flip_rate', 0):.3f} | "
@@ -100,32 +149,46 @@ def render_report(
 
     lines.append("")
 
-    # McNemar rows
-    r2 = by_role.get("candidate")
-    r1 = by_role.get("baseline")
-    r4 = by_role.get("reference")
-    if r2 and r1:
-        m = mcnemar_from_results(
-            headline_results[r2["system"]], headline_results[r1["system"]]
-        )
+    # McNemar rows — representative seed vs comparators (§7.1)
+    r2 = next((s for s in displayed if s.get("role") == "candidate"), None)
+    r1 = next((s for s in displayed if s.get("role") == "baseline"), None)
+    r4 = next((s for s in displayed if s.get("role") == "reference"), None)
+    rep_name = r2.get("representative_seed", r2["system"]) if r2 else None
+
+    def _results_for(system_summary):
+        name = system_summary.get("representative_seed", system_summary["system"])
+        return headline_results.get(name, headline_results.get(system_summary["system"]))
+
+    if r2 and r1 and _results_for(r2) and _results_for(r1):
+        m = mcnemar_from_results(_results_for(r2), _results_for(r1))
         lines.append(
-            f"McNemar row2 vs row1: b={m['b']} c={m['c']} p={m['p_value']:.4f}"
+            f"McNemar row2 ({rep_name}, median-EX seed) vs row1: b={m['b']} c={m['c']} p={m['p_value']:.4f}"
         )
-    if r2 and r4:
-        m = mcnemar_from_results(
-            headline_results[r2["system"]], headline_results[r4["system"]]
-        )
+    if r2 and r4 and _results_for(r2) and _results_for(r4):
+        m = mcnemar_from_results(_results_for(r2), _results_for(r4))
         lines.append(
-            f"McNemar row2 vs row4: b={m['b']} c={m['c']} p={m['p_value']:.4f}"
+            f"McNemar row2 ({rep_name}, median-EX seed) vs row4: b={m['b']} c={m['c']} p={m['p_value']:.4f}"
         )
+    # per-seed p-values also reported (plan §7.1)
+    seed_rows = [s for s in system_summaries if s.get("role") == "candidate_seed"]
+    if r4 and seed_rows:
+        r4_results = _results_for(r4)
+        for s in seed_rows:
+            sr = headline_results.get(s["system"])
+            if sr and r4_results:
+                m = mcnemar_from_results(sr, r4_results)
+                lines.append(
+                    f"  per-seed {s['system']}: b={m['b']} c={m['c']} p={m['p_value']:.4f}"
+                )
 
     if gate:
         lines.append("")
         lines.append(gate.verdict_line())
-        if not gate.row2_passes and "onprem" in by_role and r4:
+        onprem = next((s for s in displayed if s.get("role") == "onprem"), None)
+        if not gate.row2_passes and onprem and r4:
             lines.append(
-                f"  row 3 ({by_role['onprem']['system']}): EX {by_role['onprem']['ex_heldout']:.1%}, "
-                f"flip {by_role['onprem'].get('flip_rate', 0):.3f} vs row 4 EX {r4['ex_heldout']:.1%}, "
+                f"  row 3 ({onprem['system']}): EX {onprem['ex_heldout']:.1%}, "
+                f"flip {onprem.get('flip_rate', 0):.3f} vs row 4 EX {r4['ex_heldout']:.1%}, "
                 f"flip {r4.get('flip_rate', 0):.3f}"
             )
 

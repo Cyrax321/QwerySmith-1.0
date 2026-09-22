@@ -66,11 +66,52 @@ a "system" is just a callable from a prompt to raw output.
 
 ```bash
 uv sync --group dev --extra postgres
-uv run pytest tests_v3          # 86 tests
+uv run pytest tests_v3          # 91 tests
 ```
 
 Adapters: SQLite (dev default) and Postgres (canonical) behind one
 interface; the eval matrix is dialect-agnostic.
+
+## Runbook: from raw data to the gate (the full operational sequence)
+
+**Local (CPU, any machine):**
+
+```bash
+# 0. one-time: place the 9 Olist CSVs in datasets/olist/raw/ (Kaggle creds)
+# 1. draft the 100 questions with mechanical split tagging
+uv run python -m qwery_smith author olist --n 100
+# 2. HUMAN REVIEW: rewrite phrasing, verify gold SQL by eye, set source='human',
+#    promote prepared/questions_draft.jsonl -> datasets/olist/questions_v1.jsonl
+# 3. build everything checkable
+uv run python -m qwery_smith ingest olist
+uv run python -m qwery_smith profile olist        # records the frozen cutoff
+uv run python -m qwery_smith validate olist       # scorable denominator + leak checks
+uv run python -m qwery_smith retrieve olist        # freeze evidence packs
+uv run python -m qwery_smith triples olist         # RAFT triples (train_ok only)
+```
+
+**Colab T4 (`notebooks/t4_train.ipynb`):**
+
+```bash
+# 4. train the 3 seed adapters — one command, pinned config, hardware captured
+python -m qwery_smith train olist --seeds 1,2,3 --execute
+#    -> runs/olist/train_<ts>/adapters/adapter_seed{1,2,3} + train_record.json each
+```
+
+**Colab L4 (`notebooks/eval_servers.ipynb`):**
+
+```bash
+# 5. serve the matrix (vLLM): 8B base + LoRA hot-swap on :8000, 30B-AWQ on :8001
+# 6. run eval — 3 passes for the candidate row (one per served adapter):
+uv run python -m qwery_smith eval olist --roles baseline,onprem,reference,candidate_seed --tag seed1
+#    ...restart server with adapter_seed2, repeat with --tag seed2, etc.
+# 7. aggregate the seed series + gate (mean EX, median-EX seed for McNemar):
+uv run python -m qwery_smith report olist --run runs/olist
+#    -> report.md (fixed table + gate verdict) + failures/<system>/ per wrong answer
+```
+
+Every step writes its artifacts under `runs/` or `datasets/<name>/prepared/`;
+`report` reads only captured output — nothing is recomputed from memory.
 
 ## Repository layout
 

@@ -290,14 +290,18 @@ def train(
     epochs: int = typer.Option(3),
     lr: float = typer.Option(1e-4),
     dry_run: bool = typer.Option(False, help="validate inputs only; no GPU work"),
+    execute: bool = typer.Option(
+        False,
+        help="actually train (requires CUDA + unsloth; run this on the T4/Colab)",
+    ),
 ) -> None:
     """Stage 4: train QLoRA adapter on RAFT triples (plan §3.3).
 
-    The GPU work (Unsloth/QLoRA) targets a T4 on Colab — this CLI emits the
-    training command with fully pinned config and checks readiness.
+    Local (CPU): default mode prepares pinned configs + manifest, emits the
+    Colab command. On the T4: pass --execute to run all seeds in sequence.
     """
     cfg = _load(dataset, root)
-    from .training import prepare_training_run, qlora_config_yaml
+    from .training import prepare_training_run, train_from_config
 
     base = root or Path.cwd()
     tpath = triples_file or (
@@ -307,10 +311,11 @@ def train(
         typer.secho(f"triples not found: {tpath} (run `triples` first)", fg=typer.colors.RED)
         raise typer.Exit(2)
 
+    seed_list = [int(s) for s in seeds.split(",")]
     run = prepare_training_run(
         cfg=cfg,
         triples_path=tpath,
-        seeds=[int(s) for s in seeds.split(",")],
+        seeds=seed_list,
         output_dir=output_dir or (base / "runs" / cfg.name),
         epochs=epochs,
         lr=lr,
@@ -318,13 +323,35 @@ def train(
     typer.secho(f"training run prepared: {run['run_dir']}", fg=typer.colors.GREEN)
     typer.echo(f"  triples:   {run['n_triples']} instances")
     typer.echo(f"  seeds:     {run['seeds']}")
-    typer.echo(f"  config:    {run['config_path']}")
-    typer.echo("\nOn the T4 (Colab), run:")
-    typer.echo(f"  uv run python -m qwery_smith.training --config {run['config_path']}")
+
     if dry_run:
         typer.secho("dry-run: stopping before GPU work", fg=typer.colors.YELLOW)
         return
-    typer.echo("(GPU training executes on Colab; this machine has no CUDA)")
+
+    if not execute:
+        typer.echo("\nOn the T4 (Colab), run either:")
+        typer.echo(f"  python -m qwery_smith train {cfg.name} --seeds {seeds} --execute")
+        typer.echo(f"  python -m qwery_smith.training --config <cfg> --triples {tpath} --out {run['run_dir']}/adapters")
+        typer.echo("(this machine has no CUDA — preparation only)")
+        return
+
+    # --execute: the GPU path (Colab)
+    try:
+        import torch
+
+        cuda_ok = torch.cuda.is_available()
+    except ImportError:
+        cuda_ok = False
+    if not cuda_ok:
+        typer.secho("--execute requires CUDA (run on the Colab T4)", fg=typer.colors.RED)
+        raise typer.Exit(2)
+    adapters_dir = Path(run["run_dir"]) / "adapters"
+    for seed in seed_list:
+        config_path = Path(run["run_dir"]) / f"qlora_seed{seed}.yaml"
+        typer.secho(f"=== training seed {seed} ===", bold=True)
+        adapter_path = train_from_config(config_path, tpath, adapters_dir)
+        typer.secho(f"  adapter saved: {adapter_path}", fg=typer.colors.GREEN)
+    typer.secho(f"all {len(seed_list)} seeds trained -> {adapters_dir}", fg=typer.colors.GREEN)
 
 
 @app.command()
@@ -336,6 +363,11 @@ def eval(
     ),
     split: str = typer.Option("heldout", help="which split to score"),
     out: Optional[Path] = typer.Option(None, help="run output dir (default runs/<name>/<ts>)"),
+    roles: Optional[str] = typer.Option(
+        None, help="comma-separated roles to run this pass, e.g. 'baseline,candidate_seed' "
+        "(omit = all). Enables the 3-seed protocol: one pass per served adapter."
+    ),
+    tag: Optional[str] = typer.Option(None, help="label appended to the run dir name"),
 ) -> None:
     """Stage 5: run eval matrix — identical questions + identical packs (plan §3.4)."""
     cfg = _load(dataset, root)
@@ -357,6 +389,12 @@ def eval(
         typer.secho(f"systems config not found: {sys_path}", fg=typer.colors.RED)
         raise typer.Exit(2)
     specs = [SystemConfig.from_yaml(d) for d in yaml.safe_load(sys_path.read_text())["systems"]]
+    if roles:
+        wanted = {r.strip() for r in roles.split(",")}
+        specs = [s for s in specs if s.role in wanted]
+        if not specs:
+            typer.secho(f"no systems with roles: {sorted(wanted)}", fg=typer.colors.RED)
+            raise typer.Exit(2)
 
     qs = QuestionSet.load(cfg.question_file)
     questions = [q for q in qs.questions if q.split == split]
@@ -371,7 +409,7 @@ def eval(
         packs = {q.id: load_pack(packs_dir, q.id) for q in questions}
 
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        run_dir = out or (base / "runs" / cfg.name / ts)
+        run_dir = out or (base / "runs" / cfg.name / (ts + (f"_{tag}" if tag else "")))
         run_dir.mkdir(parents=True, exist_ok=True)
 
         typer.echo(f"{len(questions)} '{split}' questions x {len(specs)} systems -> {run_dir}")
@@ -404,15 +442,19 @@ def eval(
 def report(
     dataset: str = typer.Argument(...),
     root: Optional[Path] = typer.Option(None),
-    run: Optional[Path] = typer.Option(None, help="run dir from `eval` (default latest runs/<name>/*)"),
+    run: Optional[Path] = typer.Option(
+        None,
+        help="run dir from `eval`, or a parent dir containing multiple seed runs "
+        "(3-seed protocol merges every child with *__summary.json)",
+    ),
     split: str = typer.Option("heldout"),
 ) -> None:
-    """Stage 6: results table + gate verdict + failure folders (plan §3.5)."""
+    """Stage 6: results table + gate verdict + failure folders (plan §3.5/§7.1)."""
     cfg = _load(dataset, root)
     import json
 
     from .questions import QuestionSet
-    from .report import evaluate_gate, render_report, write_failure_folders
+    from .report import aggregate_seeds, evaluate_gate, render_report, write_failure_folders
     from .scoring import ScoredResult
 
     base = root or Path.cwd()
@@ -424,34 +466,43 @@ def report(
             raise typer.Exit(2)
         run_dir = candidates[-1]
 
-    summaries = []
-    headline = {}
-    for p in sorted(run_dir.glob("*__summary.json")):
-        s = json.loads(p.read_text())
-        summaries.append(s)
-    hr_path = run_dir / "headline_results.json"
-    if hr_path.exists():
-        raw = json.loads(hr_path.read_text())
-        for name, results in raw.items():
-            headline[name] = [ScoredResult(**r) for r in results]
+    # collect summaries + per-question headlines: from one run dir, or from
+    # every child run dir when the parent holds a multi-seed series
+    summary_paths = sorted(run_dir.glob("*__summary.json"))
+    headline_paths = [run_dir / "headline_results.json"]
+    if not summary_paths:
+        for child in sorted(run_dir.glob("*/*__summary.json")):
+            summary_paths.append(child)
+            headline_paths.append(child.parent / "headline_results.json")
 
+    summaries = [json.loads(p.read_text()) for p in summary_paths]
     if not summaries:
         typer.secho(f"no summaries in {run_dir}", fg=typer.colors.RED)
         raise typer.Exit(2)
 
-    by_role = {s["role"]: s for s in summaries}
+    headline: dict[str, list[ScoredResult]] = {}
+    for hp in headline_paths:
+        if not hp.exists():
+            continue
+        raw = json.loads(hp.read_text())
+        for name, results in raw.items():
+            headline[name] = [ScoredResult(**r) for r in results]
+
+    # gate per §7.1: candidate EX = seed-mean when role='candidate_seed' rows exist
+    candidate, rep_seed = aggregate_seeds(summaries, headline)
     gate = None
-    if "candidate" in by_role and "reference" in by_role:
+    ref = next((s for s in summaries if s.get("role") == "reference"), None)
+    if candidate is not None and ref is not None:
         gate = evaluate_gate(
-            ex_row2=by_role["candidate"]["ex_heldout"],
-            flip_row2=by_role["candidate"]["flip_rate"],
-            ex_row4=by_role["reference"]["ex_heldout"],
-            flip_row4=by_role["reference"]["flip_rate"],
+            ex_row2=candidate["ex_heldout"],
+            flip_row2=candidate["flip_rate"],
+            ex_row4=ref["ex_heldout"],
+            flip_row4=ref["flip_rate"],
         )
 
     qs = QuestionSet.load(cfg.question_file)
     md = render_report(cfg.name, summaries, headline, gate=gate)
-    out_md = run_dir / "report.md"
+    out_md = run_dir / "report.md" if summary_paths and summary_paths[0].parent == run_dir else run_dir / "report.md"
     out_md.write_text(md, encoding="utf-8")
     typer.echo(md)
 

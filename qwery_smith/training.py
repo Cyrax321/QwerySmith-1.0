@@ -110,19 +110,101 @@ def prepare_training_run(
 # notebook cell is a single call: python -m qwery_smith.training --config X
 
 
+def _hardware_manifest() -> dict[str, Any]:
+    """'State what ran on what' (plan §8.3) — captured at train time."""
+    import platform
+    import subprocess
+
+    gpu = "unknown"
+    vram_mb = 0
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            gpu = torch.cuda.get_device_name(0)
+            vram_mb = torch.cuda.get_device_properties(0).total_memory // 2**20
+    except Exception:
+        pass
+    try:
+        xformers = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if xformers.returncode == 0 and not vram_mb:
+            parts = xformers.stdout.strip().split(",")
+            gpu = parts[0].strip()
+            vram_mb = int(parts[1].strip().split()[0])
+    except Exception:
+        pass
+    pkgs = {}
+    for mod in ("torch", "transformers", "trl", "peft", "unsloth", "datasets", "bitsandbytes"):
+        try:
+            pkgs[mod] = __import__(mod).__version__
+        except Exception:
+            pkgs[mod] = None
+    return {
+        "python": platform.python_version(),
+        "gpu": gpu,
+        "vram_mb": int(vram_mb),
+        "packages": pkgs,
+        "captured_at": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def _sha256_tree(path: Path) -> dict[str, str]:
+    """Hash every file in an adapter dir — the manifest's weights_sha256."""
+    import hashlib
+
+    out: dict[str, str] = {}
+    for f in sorted(Path(path).rglob("*")):
+        if f.is_file():
+            out[str(f.relative_to(path))] = hashlib.sha256(f.read_bytes()).hexdigest()
+    return out
+
+
+def _make_sft_args(cfg: dict, adapter_out: Path, seed: int) -> Any:
+    """SFTConfig with trl-API fallbacks: arg names drift across trl versions
+    (max_length/max_seq_length, max_tokens, packing signature)."""
+    from trl import SFTConfig
+
+    batch = cfg["batch"]
+    optim = cfg["optim"]
+    base = dict(
+        output_dir=str(adapter_out),
+        per_device_train_batch_size=batch["per_device"],
+        gradient_accumulation_steps=batch["grad_accum"],
+        num_train_epochs=optim["epochs"],
+        learning_rate=optim["lr"],
+        lr_scheduler_type=optim["schedule"],
+        warmup_ratio=optim["warmup_ratio"],
+        logging_steps=10,
+        seed=seed,
+        report_to=[],
+        save_strategy="no",
+    )
+    # context-length arg: try both spellings across trl releases
+    for len_arg in ("max_length", "max_seq_length"):
+        try:
+            return SFTConfig(**base, **{len_arg: batch["max_len"]}, packing=bool(cfg["packing"]))
+        except TypeError:
+            continue
+    # packing kwarg itself has moved across versions
+    try:
+        return SFTConfig(**base, max_length=batch["max_len"])
+    except TypeError:
+        return SFTConfig(**base)
+
+
 def train_from_config(config_path: Path, triples_path: Path, adapter_out: Path) -> Path:
     """The actual QLoRA run. Import errors here are expected on CPU-only machines."""
+    import random as _r
+
     import torch
-    from datasets import Dataset
-    from peft import LoraConfig
-    from transformers import TrainingArguments
 
     cfg = yaml.safe_load(Path(config_path).read_text())
     seed = cfg["seed"]
 
     torch.manual_seed(seed)
-    import random as _r
-
     _r.seed(seed)
 
     # Colab/T4 path: unsloth is required for the fast 4-bit QLoRA route.
@@ -157,37 +239,45 @@ def train_from_config(config_path: Path, triples_path: Path, adapter_out: Path) 
                 d = json.loads(line)
                 instances.append(TrainInstance(prompt=d["prompt"], target=d["target"]))
 
-    def fmt(inst: TrainInstance):
-        return {"text": inst.text}
+    # context-budget audit: flag (not drop) instances likely to overflow the
+    # 4096 budget under packing — char proxy ~4 chars/token, 25% packing headroom
+    approx_budget = int(batch["max_len"] * 0.75) * 4
+    overflow = sum(1 for i in instances if len(i.text) > approx_budget)
 
-    ds = Dataset.from_list([fmt(i) for i in instances])
+    from datasets import Dataset
 
-    from trl import SFTTrainer, SFTConfig
+    ds = Dataset.from_list([{"text": i.text} for i in instances])
 
+    from trl import SFTTrainer
+
+    args = _make_sft_args(cfg, adapter_out, seed)
     trainer = SFTTrainer(
         model=model,
         processing_class=tokenizer,
         train_dataset=ds,
-        args=SFTConfig(
-            output_dir=str(adapter_out),
-            per_device_train_batch_size=batch["per_device"],
-            gradient_accumulation_steps=batch["grad_accum"],
-            num_train_epochs=optim["epochs"],
-            learning_rate=optim["lr"],
-            lr_scheduler_type=optim["schedule"],
-            warmup_ratio=optim["warmup_ratio"],
-            logging_steps=10,
-            seed=seed,
-            report_to=[],
-            max_length=batch["max_len"],
-            packing=cfg["packing"],
-        ),
+        args=args,
     )
     trainer.train()
 
     adapter_path = Path(adapter_out) / f"adapter_seed{seed}"
     model.save_pretrained(str(adapter_path))
     tokenizer.save_pretrained(str(adapter_path))
+
+    # run record: hardware + adapter hashes + train loss (plan §8.3)
+    record = {
+        "seed": seed,
+        "config": str(config_path),
+        "n_triples": len(instances),
+        "n_overflow_dropped": overflow,
+        "hardware": _hardware_manifest(),
+        "adapter_sha256": _sha256_tree(adapter_path),
+        "final_loss": float(trainer.state.log_history[-1].get("train_loss", "nan"))
+        if trainer.state.log_history else None,
+        "finished_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    (adapter_path / "train_record.json").write_text(
+        json.dumps(record, indent=2), encoding="utf-8"
+    )
     return adapter_path
 
 
