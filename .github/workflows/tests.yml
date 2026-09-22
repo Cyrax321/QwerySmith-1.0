@@ -1,0 +1,32 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Sync deps
+        run: uv sync --group dev
+      - name: Run harness tests
+        run: uv run pytest tests_v3 -q
+
+  reusability-proof:
+    # the §8.1 config-only proof must stay green on every change
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Sync deps
+        run: uv sync --group dev
+      - name: Part 3 reusability (config changes only)
+        run: uv run pytest tests_v3/test_reusability.py -q
