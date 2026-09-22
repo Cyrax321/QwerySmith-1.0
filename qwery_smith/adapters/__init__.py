@@ -9,9 +9,11 @@ from .base import DatabaseAdapter
 
 def open_adapter(uri: str, read_only: bool = True, **kwargs) -> DatabaseAdapter:
     if uri.startswith("sqlite"):
-        # sqlite:////abs/path or sqlite:///rel/path (relative to cwd)
-        raw = uri.split(":///", 1)[-1] if uri.startswith("sqlite:///") else uri
-        path = Path("/" + raw) if uri.startswith("sqlite:////") else Path(raw)
+        # forms: sqlite:////abs/path (hostless absolute) or sqlite:///rel/path
+        if uri.startswith("sqlite:////"):
+            path = Path("/" + uri[len("sqlite:////"):].lstrip("/"))
+        else:
+            path = Path(uri.split("sqlite:///", 1)[-1])
         if not read_only:
             path.parent.mkdir(parents=True, exist_ok=True)
         from .sqlite_adapter import SQLiteAdapter
