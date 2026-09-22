@@ -60,17 +60,22 @@ class DatasetConfig:
             raise ConfigError(f"no config found at {cfg_path}")
         raw = yaml.safe_load(cfg_path.read_text())
 
-        # sqlite URIs are dataset-relative: resolve against the dataset dir so
-        # `python -m qwery_smith ingest olist` works from any cwd.
-        # Absolute paths must keep the 4-slash hostless form.
-        uri = raw["datasource"]["uri"]
-        if uri.startswith("sqlite:///") and not uri.startswith("sqlite:////"):
-            rel = uri.split("sqlite:///", 1)[1]
-            resolved = base / rel
-            uri = f"sqlite:///{resolved}" if not str(resolved).startswith("/") else f"sqlite:////{resolved}"
-
         try:
             ds = raw["datasource"]
+            for key in ("csv_dir", "csv_pattern", "table_map", "uri", "dialect"):
+                if key not in ds:
+                    raise ConfigError(f"{cfg_path}: datasource missing key '{key}'")
+            for key in ("name", "license", "source_url", "question_file"):
+                if key not in raw:
+                    raise ConfigError(f"{cfg_path}: missing key '{key}'")
+            # sqlite URIs are dataset-relative: resolve against the dataset dir
+            # so `python -m qwery_smith ingest olist` works from any cwd.
+            # Absolute paths use the hostless 4-slash form: sqlite:////abs/path
+            uri = ds["uri"]
+            if uri.startswith("sqlite:///") and not uri.startswith("sqlite:////"):
+                rel = uri.split("sqlite:///", 1)[1]
+                resolved = (base / rel).resolve()
+                uri = "sqlite:////" + str(resolved).lstrip("/")
             ho = raw.get("holdout")
             return cls(
                 name=raw["name"],
@@ -86,7 +91,9 @@ class DatasetConfig:
                     dialect=ds["dialect"],
                     extra=ds.get("extra", {}),
                 ),
-                seed=raw.get("seed", 42),
+                # manifest field is created_with_seed (plan §3.2); legacy
+                # configs with plain `seed` still work
+                seed=raw.get("created_with_seed", raw.get("seed", 42)),
                 retrieval_top_k=raw.get("retrieval_top_k", 8),
                 statement_timeout_sec=raw.get("statement_timeout_sec", 30.0),
                 extra=raw.get("extra", {}),
