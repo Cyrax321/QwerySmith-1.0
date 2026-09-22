@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from .adapters.base import DatabaseAdapter
 from .config import DatasetConfig
 from .questions import Question
 from .retrieval import EvidencePack, IndexDoc

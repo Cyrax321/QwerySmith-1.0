@@ -56,7 +56,6 @@ def openai_compatible_call(
     consistency run (plan §0 — 5 samples must actually vary) and a fixed
     seed for the headline run.
     """
-    import json
     import os
     import urllib.request
 

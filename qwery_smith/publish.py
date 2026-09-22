@@ -21,7 +21,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .config import DatasetConfig
-from .exceptions import HarnessError
 
 
 # ------------------------------------------------------------- figures -----
@@ -355,7 +354,7 @@ def publish_seed(spec: PublishSpec, seed: int, is_canonical: bool = False) -> di
     report_md = None
     if spec.report_md_path and Path(spec.report_md_path).exists():
         report_md = Path(spec.report_md_path).read_text()
-        has_table = _results_figure(report_md, fig_dir / "results_table.png")
+        _results_figure(report_md, fig_dir / "results_table.png")
 
     # card
     card = build_model_card(

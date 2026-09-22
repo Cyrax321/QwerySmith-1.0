@@ -12,18 +12,16 @@ Checks, in order:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Optional
 
 from .adapters.base import DatabaseAdapter
 from .config import HoldoutConfig
-from .exceptions import HoldoutLeakError
 from .profiler import compute_holdout_cutoff
 from .questions import (
     CATEGORIES,
     DIFFICULTIES,
     SOURCES,
     SPLITS,
-    Question,
     QuestionSet,
     canonical_rows_hash,
 )

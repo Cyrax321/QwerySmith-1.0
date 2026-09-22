@@ -9,7 +9,7 @@ row 1 and row 2 of the matrix is the adapter produced here.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -213,7 +213,7 @@ def train_from_config(config_path: Path, triples_path: Path, adapter_out: Path) 
 
     lora = cfg["lora"]
     batch = cfg["batch"]
-    optim = cfg["optim"]
+    cfg["optim"]
 
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=cfg["base_model"],

@@ -16,7 +16,6 @@ from typing import Any, Callable, Optional
 
 from .adapters.base import DatabaseAdapter
 from .config import DatasetConfig
-from .exceptions import HarnessError
 
 
 @dataclass
