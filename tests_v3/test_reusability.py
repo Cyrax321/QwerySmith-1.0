@@ -1,5 +1,5 @@
 """Part 3 reusability proof (plan §8.1): the full pipeline runs on a second
-dataset with config changes only — enforced, not asserted.
+dataset with config changes only - enforced, not asserted.
 
 The toy #2 dataset is deliberately a different shape from toy #1:
   - single flat table, no FK graph
@@ -7,7 +7,7 @@ The toy #2 dataset is deliberately a different shape from toy #1:
   - different holdout column and window
   - different text/keyword vocabulary
 If any fix were needed in qwery_smith/ to make this pass, that fix had to land
-in the harness (it did, in the pre-test hardening) — this test pins it.
+in the harness (it did, in the pre-test hardening) - this test pins it.
 """
 
 import json
@@ -35,7 +35,7 @@ def _make_toy2(root: Path) -> Path:
         w.writerow(["50001", "85099B", "RED WOOLY HEART", 12, "2010-03-14 10:00:00", 2.95, "17850", "United Kingdom"])
         w.writerow(["50002", "22633", "VINTAGE GIFT SET", 6, "2010-05-02 11:30:00", 4.25, "17850", "United Kingdom"])
         w.writerow(["50003", "85099B", "RED WOOLY HEART", 3, "2010-08-19 09:15:00", 2.95, "13085", "France"])
-    # sheet 2 (newer — includes the holdout window)
+    # sheet 2 (newer - includes the holdout window)
     with open(raw / "Year 2010-2011.csv", "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["InvoiceNo", "StockCode", "Description", "Quantity", "InvoiceDate", "UnitPrice", "CustomerID", "Country"])
@@ -89,17 +89,17 @@ def test_part3_reusability_config_only(tmp_path):
     """Full pipeline on a differently-shaped dataset: config changes only."""
     _make_toy2(tmp_path)
 
-    # 1. ingest — grouped load (two files -> one table)
+    # 1. ingest - grouped load (two files -> one table)
     r = runner.invoke(app, ["ingest", "retail_toy", "--root", str(tmp_path)])
     assert r.exit_code == 0, r.output
     assert "7" in r.output  # 3 + 4 rows across both sheets
 
-    # 2. profile — cutoff computed mechanically: max 2011-09-12 -> 2011-03-01
+    # 2. profile - cutoff computed mechanically: max 2011-09-12 -> 2011-03-01
     r = runner.invoke(app, ["profile", "retail_toy", "--root", str(tmp_path)])
     assert r.exit_code == 0, r.output
     assert "2011-03-01" in r.output
 
-    # 3. author — generators must work with no FK graph + grouped table
+    # 3. author - generators must work with no FK graph + grouped table
     r = runner.invoke(app, ["author", "retail_toy", "--root", str(tmp_path),
                             "--n", "8", "--seed", "1", "--force"])
     assert r.exit_code == 0, r.output
@@ -122,12 +122,12 @@ def test_part3_reusability_config_only(tmp_path):
     assert r.exit_code == 0, r.output
     assert "FAILED" not in r.output
 
-    # 5. retrieve + triples — packs and RAFT triples build on the new shape
+    # 5. retrieve + triples - packs and RAFT triples build on the new shape
     for stage in ["retrieve", "triples"]:
         r = runner.invoke(app, [stage, "retail_toy", "--root", str(tmp_path)])
         assert r.exit_code == 0, f"{stage}: {r.output}"
 
-    # 6. eval + report — script-driver systems, same as Olist path
+    # 6. eval + report - script-driver systems, same as Olist path
     good_py = tmp_path / "good_system.py"
     good_py.write_text(
         "import sys\n"

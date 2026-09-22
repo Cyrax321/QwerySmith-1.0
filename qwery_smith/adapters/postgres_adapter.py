@@ -129,7 +129,7 @@ class PostgresAdapter(DatabaseAdapter):
             )
             self.conn.commit()
         except Exception:
-            # Olist has known FK orphans — report, don't fail (plan §4.1)
+            # Olist has known FK orphans - report, don't fail (plan §4.1)
             self.conn.rollback()
         finally:
             cur.close()

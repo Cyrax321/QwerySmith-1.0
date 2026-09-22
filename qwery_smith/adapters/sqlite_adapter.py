@@ -1,4 +1,4 @@
-"""SQLite adapter — read-only enforcement + AST guard + timeout + load (M1).
+"""SQLite adapter - read-only enforcement + AST guard + timeout + load (M1).
 
 Also serves as the reference implementation for tests and the toy fixture.
 """

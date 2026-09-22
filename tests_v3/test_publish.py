@@ -46,7 +46,7 @@ def test_card_contains_everything():
         cutoff="2018-03-01",
         qlora_config=QLORA_CFG,
         train_record=RECORD,
-        report_md="| System | EX |\n|---|---|\n| r2 | 40% |\n\nGATE: PASS — within margin",
+        report_md="| System | EX |\n|---|---|\n| r2 | 40% |\n\nGATE: PASS - within margin",
         gate_pass=True,
         repo_url="https://github.com/Cyrax321/QwerySmith-1.0",
     )

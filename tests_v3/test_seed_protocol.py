@@ -58,7 +58,7 @@ def test_gate_uses_seed_mean():
     cand, rep = aggregate_seeds(seeds, {})
     gate = evaluate_gate(cand["ex_heldout"], cand["flip_rate"], ref["ex_heldout"], ref["flip_rate"])
     assert gate.row2_passes  # mean 0.50 within 5pts of 0.52; flip 0.10 <= 0.12
-    # but the worst single seed would have failed — aggregation is load-bearing
+    # but the worst single seed would have failed - aggregation is load-bearing
     gate_worst = evaluate_gate(0.40, 0.15, ref["ex_heldout"], ref["flip_rate"])
     assert not gate_worst.row2_passes
 

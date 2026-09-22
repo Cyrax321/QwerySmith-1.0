@@ -103,7 +103,7 @@ def validate_question_set(
 
     if not qs.ids_unique():
         dupes = sorted({q.id for q in qs.questions if [x.id for x in qs.questions].count(q.id) > 1})
-        res.excluded.append(QuestionFailure("—", "duplicate_ids", f"{len(dupes)} duplicate ids: {dupes[:5]}"))
+        res.excluded.append(QuestionFailure(" - ", "duplicate_ids", f"{len(dupes)} duplicate ids: {dupes[:5]}"))
 
     if cutoff_iso is None and holdout is not None:
         _max, cutoff_iso = compute_holdout_cutoff(adapter, holdout)
@@ -144,7 +144,7 @@ def validate_question_set(
         res.scorable += 1
         res.split_counts[q.split] = res.split_counts.get(q.split, 0) + 1
 
-    # 3. holdout-leak check (§4.4) — train_ok questions only, clamped-shadow rule
+    # 3. holdout-leak check (§4.4) - train_ok questions only, clamped-shadow rule
     if holdout is not None:
         if schema is None:
             from .schema_loader import load_schema
@@ -188,7 +188,7 @@ def ingest_dataset(cfg, adapter) -> dict[str, int]:
     counts: dict[str, int] = {}
     for csv_stem, table in cfg.datasource.table_map.items():
         if isinstance(table, list):
-            # grouped load: multiple files append into one table (plan §8.1 —
+            # grouped load: multiple files append into one table (plan §8.1  - 
             # e.g. Online Retail II's two Excel sheets land in one table)
             total = 0
             for j, stem in enumerate(table):

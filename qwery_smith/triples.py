@@ -3,7 +3,7 @@
 Triples: (question, retrieved rows including distractors, answer with citation).
 Grounded ~70% / refusal ~15% / schema-only ~15% (config-driven, not hardcoded).
 Distractors are seeded hard negatives: same table, disjoint value on a filtered
-column, adjacent category/period — plausible but wrong. The model must learn
+column, adjacent category/period - plausible but wrong. The model must learn
 to FILTER, not pattern-match.
 """
 
@@ -85,7 +85,7 @@ CITATION_RE = None  # compiled lazily
 
 
 def extract_citations(text: str) -> list[tuple[str, str]]:
-    """[table:row_id] citations — machine-verifiable (plan §5.3)."""
+    """[table:row_id] citations - machine-verifiable (plan §5.3)."""
     import re
 
     global CITATION_RE
@@ -135,7 +135,7 @@ def sample_distractors(
     ]
     if not pool:
         return []
-    # weighted: same tables as positives first, then rest — deterministic under rng
+    # weighted: same tables as positives first, then rest - deterministic under rng
     pos_tables = {p.split(":", 1)[0] for p in positives}
     near = [d for d in pool if d.table in pos_tables]
     far = [d for d in pool if d.table not in pos_tables] if same_table else pool
@@ -163,7 +163,7 @@ def build_triples(
 
     mix: {grounded, refusal, schema_only} shares, default 70/15/15 (plan §3.3).
     answer_texts: qid -> gold answer sentence. If absent, generated as
-    "The query returns N row(s)." — datasets author richer sentences later.
+    "The query returns N row(s)." - datasets author richer sentences later.
     """
     rng = rng or random.Random(cfg.seed)
     m = mix or {"grounded": 0.70, "refusal": 0.15, "schema_only": 0.15}

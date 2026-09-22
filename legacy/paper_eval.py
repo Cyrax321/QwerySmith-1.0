@@ -115,8 +115,8 @@ COMPLEXITY_TIERS = [
 
 LENGTH_BINS = [
     "Short (≤15)",
-    "Medium (16–30)",
-    "Long (31–55)",
+    "Medium (16-30)",
+    "Long (31-55)",
     "Very Long (>55)",
 ]
 
@@ -315,9 +315,9 @@ def classify_length_bin(sql: str) -> str:
     if tokens <= 15:
         return "Short (≤15)"
     elif tokens <= 30:
-        return "Medium (16–30)"
+        return "Medium (16-30)"
     elif tokens <= 55:
-        return "Long (31–55)"
+        return "Long (31-55)"
     else:
         return "Very Long (>55)"
 
@@ -562,7 +562,7 @@ def load_data(run_dir: Path):
                         for i, p in enumerate(preds):
                             if len(items_by_set[sname]) <= i:
                                 items_by_set[sname].append({
-                                    "gold": "", "complexity": "Simple (Projection / Filter)", "length_bin": "Medium (16–30)"
+                                    "gold": "", "complexity": "Simple (Projection / Filter)", "length_bin": "Medium (16-30)"
                                 })
                             clean_p = clean_sql(p)
                             items_by_set[sname][i][f"{sysname}_pred"] = clean_p

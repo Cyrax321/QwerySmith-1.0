@@ -2,7 +2,7 @@
 
 A System is anything callable: (prompt) -> raw_output text. Base/FT models
 are vLLM/transformers calls; frontier is an API call. The runner never knows
-which is which — that's the point.
+which is which - that's the point.
 """
 
 from __future__ import annotations
@@ -80,7 +80,7 @@ def run_system(
 ) -> SystemRun:
     """Run headline (1 deterministic-seed call) + consistency (5 sampled calls).
 
-    Consistency runs pass DISTINCT seeds to the driver (plan §0) — otherwise
+    Consistency runs pass DISTINCT seeds to the driver (plan §0) - otherwise
     a pinned-seed API returns identical outputs and flip rate is fake 0.
     """
     run = SystemRun(spec=spec)

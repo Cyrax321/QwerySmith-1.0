@@ -1,5 +1,5 @@
-# UCI Online Retail II — Part 3 reusability dataset (plan §8.1).
-# Config changes ONLY relative to Olist — zero harness code changes.
+# UCI Online Retail II - Part 3 reusability dataset (plan §8.1).
+# Config changes ONLY relative to Olist - zero harness code changes.
 # Raw data: https://archive.ics.uci.edu/dataset/502/online+retail+ii
 # (two Excel sheets; export each as UTF-8 CSV into raw/)
 name: online_retail_ii
@@ -41,7 +41,7 @@ datasource:
     primary_keys:
       online_retail: [InvoiceNo, StockCode]   # best-effort; invoice lines may repeat
 
-    foreign_keys: []           # single flat table — no FK graph (the point)
+    foreign_keys: []           # single flat table - no FK graph (the point)
 
     authoring:
       review_keywords:

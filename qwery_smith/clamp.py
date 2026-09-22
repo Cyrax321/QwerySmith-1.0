@@ -1,4 +1,4 @@
-"""Time-clamped shadow database (plan §4.4) — the mechanical window check.
+"""Time-clamped shadow database (plan §4.4) - the mechanical window check.
 
 Instead of injecting cutoff predicates into gold SQL (fragile under
 subqueries/CTEs/NOT EXISTS), we execute gold SQL against a *clamped* shadow:
@@ -25,7 +25,7 @@ from .schema_loader import Schema
 
 
 class _ClampedExecutor:
-    """Read-only executor over the clamped shadow. safe_execute only —
+    """Read-only executor over the clamped shadow. safe_execute only  - 
     never use for introspection or eval scoring."""
 
     dialect = "sqlite"
@@ -161,7 +161,7 @@ def window_dependent(gold_sql: str, full_sha256: str, clamped) -> bool:
     """True iff executing gold against the clamped shadow changes the result.
 
     This is THE mechanical window rule (plan §4.4): no judgment, no predicate
-    injection — just execution on both sides of the cutoff.
+    injection - just execution on both sides of the cutoff.
     """
     rows, cols, _ = clamped.safe_execute(gold_sql)
     clamped_sha, _n = canonical_rows_hash(rows, cols)

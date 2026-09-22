@@ -1,6 +1,6 @@
 """Results report (plan §3.5/§7.2): same table + same gate for every dataset.
 
-GATE (pre-registered, plan §7.1) — do not touch without written amendment:
+GATE (pre-registered, plan §7.1) - do not touch without written amendment:
   row 2 PASSES iff
     EX_heldout(row2_mean_3seeds) >= EX_heldout(row4) - 5.0
     AND flip_rate(row2_pooled) <= flip_rate(row4)
@@ -32,7 +32,7 @@ class GateResult:
     def verdict_line(self) -> str:
         if self.row2_passes:
             return (
-                f"GATE: PASS — row 2 EX {self.ex_row2:.1%} is within "
+                f"GATE: PASS - row 2 EX {self.ex_row2:.1%} is within "
                 f"{GATE_EX_MARGIN_POINTS:.0f} pts of row 4 ({self.ex_row4:.1%}); "
                 f"flip {self.flip_row2:.3f} <= {self.flip_row4:.3f}"
             )
@@ -43,7 +43,7 @@ class GateResult:
             )
         if not self.flip_met:
             parts.append(f"flip {self.flip_row2:.3f} > row 4 {self.flip_row4:.3f}")
-        return "GATE: FAIL — " + "; ".join(parts) + ". Reporting row 3 vs row 4."
+        return "GATE: FAIL - " + "; ".join(parts) + ". Reporting row 3 vs row 4."
 
 
 def evaluate_gate(
@@ -127,7 +127,7 @@ def render_report(
     else:
         displayed = system_summaries
 
-    lines = [f"# Results — {dataset}", ""]
+    lines = [f"# Results - {dataset}", ""]
     lines.append("| System | EX held-out (95% CI) | Scorable N | Agr. | Flip | Refusal% | p50 lat (ms) | Hardware |")
     lines.append("|---|---|---|---|---|---|---|---|")
 
@@ -140,7 +140,7 @@ def render_report(
             name = f"{name} (mean ± range, n={len(s.get('seed_systems', []))})"
             lo, hi = s["ex_range"]
         lines.append(
-            f"| {name} | {ex:.1%} ({lo:.0%}–{hi:.0%}) | {n} | "
+            f"| {name} | {ex:.1%} ({lo:.0%}-{hi:.0%}) | {n} | "
             f"{s.get('agreement', 0):.2f} | {s.get('flip_rate', 0):.3f} | "
             f"{s.get('refusal_rate', 0):.1%} | {s.get('p50_latency_ms', 0):.0f} | "
             f"{s.get('hardware', '')} |"
@@ -148,7 +148,7 @@ def render_report(
 
     lines.append("")
 
-    # McNemar rows — representative seed vs comparators (§7.1)
+    # McNemar rows - representative seed vs comparators (§7.1)
     r2 = next((s for s in displayed if s.get("role") == "candidate"), None)
     r1 = next((s for s in displayed if s.get("role") == "baseline"), None)
     r4 = next((s for s in displayed if s.get("role") == "reference"), None)
@@ -210,11 +210,11 @@ def write_failure_folders(
                 continue
             q = questions[r.question_id]
             content = (
-                f"# {r.question_id} — {r.error_class}\n\n"
+                f"# {r.question_id} - {r.error_class}\n\n"
                 f"**Question:** {q.question}\n\n"
                 f"**Reason:** {r.reason}\n\n"
-                f"**Predicted SQL:**\n```sql\n{r.pred_sql or '—'}\n```\n\n"
-                f"**Predicted answer:** {r.pred_answer or '—'}\n\n"
+                f"**Predicted SQL:**\n```sql\n{r.pred_sql or ' - '}\n```\n\n"
+                f"**Predicted answer:** {r.pred_answer or ' - '}\n\n"
                 f"**Gold SQL:**\n```sql\n{q.gold_sql}\n```\n"
             )
             (sys_dir / f"{r.question_id}.md").write_text(content, encoding="utf-8")

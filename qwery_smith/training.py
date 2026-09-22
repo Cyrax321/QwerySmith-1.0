@@ -2,7 +2,7 @@
 
 Local machines (no CUDA) only *prepare* runs: validate triples, write the
 pinned config, emit the exact command. The Colab notebook/agent executes the
-same config. Hyperparameters are FULLY PINNED (§3.3) — the only delta between
+same config. Hyperparameters are FULLY PINNED (§3.3) - the only delta between
 row 1 and row 2 of the matrix is the adapter produced here.
 """
 
@@ -95,7 +95,7 @@ def prepare_training_run(
         "triples_path": str(triples_path),
         "n_triples": n_triples,
         "seeds": seeds,
-        "hardware_target": "T4 16GB (Colab) — Unsloth fast path",
+        "hardware_target": "T4 16GB (Colab) - Unsloth fast path",
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "configs": seed_configs,
         "defaults": QLORA_DEFAULTS,
@@ -111,7 +111,7 @@ def prepare_training_run(
 
 
 def _hardware_manifest() -> dict[str, Any]:
-    """'State what ran on what' (plan §8.3) — captured at train time."""
+    """'State what ran on what' (plan §8.3) - captured at train time."""
     import platform
     import subprocess
 
@@ -152,7 +152,7 @@ def _hardware_manifest() -> dict[str, Any]:
 
 
 def _sha256_tree(path: Path) -> dict[str, str]:
-    """Hash every file in an adapter dir — the manifest's weights_sha256."""
+    """Hash every file in an adapter dir - the manifest's weights_sha256."""
     import hashlib
 
     out: dict[str, str] = {}
@@ -208,7 +208,7 @@ def train_from_config(config_path: Path, triples_path: Path, adapter_out: Path) 
     _r.seed(seed)
 
     # Colab/T4 path: unsloth is required for the fast 4-bit QLoRA route.
-    # (Local CPU machines use `prepare_training_run` only — never this function.)
+    # (Local CPU machines use `prepare_training_run` only - never this function.)
     from unsloth import FastLanguageModel
 
     lora = cfg["lora"]
@@ -240,7 +240,7 @@ def train_from_config(config_path: Path, triples_path: Path, adapter_out: Path) 
                 instances.append(TrainInstance(prompt=d["prompt"], target=d["target"]))
 
     # context-budget audit: flag (not drop) instances likely to overflow the
-    # 4096 budget under packing — char proxy ~4 chars/token, 25% packing headroom
+    # 4096 budget under packing - char proxy ~4 chars/token, 25% packing headroom
     approx_budget = int(batch["max_len"] * 0.75) * 4
     overflow = sum(1 for i in instances if len(i.text) > approx_budget)
 

@@ -50,7 +50,7 @@ def compute_holdout_cutoff(
 ) -> tuple[str, str]:
     """Plan §4.2: cutoff = start_of_month(max(<date col>)) - N months.
 
-    Returns (max_value, cutoff) as ISO strings. Pure function of data — not of
+    Returns (max_value, cutoff) as ISO strings. Pure function of data - not of
     anyone's judgment (that's the whole point).
     """
     q = f'SELECT MAX("{holdout.col}") FROM "{holdout.table}"'

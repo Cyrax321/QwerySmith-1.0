@@ -1,4 +1,4 @@
-# Eval matrix — Olist (plan §5.2). Roles are fixed; endpoints are config.
+# Eval matrix - Olist (plan §5.2). Roles are fixed; endpoints are config.
 # Frontier is sanctioned here because Olist is PUBLIC data.
 systems:
   - name: qwen3-8b-base

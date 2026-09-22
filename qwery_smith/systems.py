@@ -50,10 +50,10 @@ def openai_compatible_call(
     api_key_env: Optional[str] = None,
     decoding: dict[str, Any] | None = None,
 ) -> Callable[[str, int], str]:
-    """Driver for vLLM/SGLang/Ollama/frontier APIs — all OpenAI-compatible.
+    """Driver for vLLM/SGLang/Ollama/frontier APIs - all OpenAI-compatible.
 
     The callable takes (prompt, seed): the runner passes a distinct seed per
-    consistency run (plan §0 — 5 samples must actually vary) and a fixed
+    consistency run (plan §0 - 5 samples must actually vary) and a fixed
     seed for the headline run.
     """
     import os

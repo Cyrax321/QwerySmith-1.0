@@ -1,4 +1,4 @@
-"""QwerySmith v3.0 — reusable text-to-SQL evaluation and fine-tuning harness."""
+"""QwerySmith v3.0 - reusable text-to-SQL evaluation and fine-tuning harness."""
 
 __version__ = "3.0.0"
 

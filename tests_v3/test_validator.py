@@ -1,4 +1,4 @@
-"""Validator + holdout-leak tests (plan §4.4) — the enforcement machinery."""
+"""Validator + holdout-leak tests (plan §4.4) - the enforcement machinery."""
 
 
 from qwery_smith.config import HoldoutConfig
@@ -62,7 +62,7 @@ def test_boundary_exact_train_ok(toy_db):
 
 
 def test_heldout_questions_bypass_leak_check(toy_db):
-    # heldout questions are SUPPOSED to read the window — no leak check applies
+    # heldout questions are SUPPOSED to read the window - no leak check applies
     qs = _make_qs(toy_db, [("q4", "SELECT COUNT(*) FROM orders WHERE purchase_ts >= '2018-03-01'", "heldout")])
     res = validate_question_set(qs, toy_db, holdout=HOLDOUT, cutoff_iso=CUTOFF)
     assert res.ok, res.summary()

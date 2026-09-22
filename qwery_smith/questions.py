@@ -1,10 +1,10 @@
 """Question set format (plan §3.2): one file format for all datasets.
 
-questions_v1.jsonl — one JSON object per line:
+questions_v1.jsonl - one JSON object per line:
   id, question, gold_sql, expected_rows {sha256, n_rows}, date, difficulty,
   category, split, source
 
-manifest.yaml — name, version, licence, seed, counts, db_fingerprint,
+manifest.yaml - name, version, licence, seed, counts, db_fingerprint,
 holdout cutoff (filled from profiler output at validate time).
 """
 
@@ -164,7 +164,7 @@ def write_manifest(
     holdout: Optional[dict[str, Any]],
     counts: dict[str, Any],
 ) -> None:
-    """Write the manifest (plan §3.2). Holdout cutoff comes from profiler —
+    """Write the manifest (plan §3.2). Holdout cutoff comes from profiler  - 
     mechanical, not authored."""
     manifest = {
         "name": name,

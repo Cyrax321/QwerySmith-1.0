@@ -5,7 +5,7 @@ expected_rows + split mechanically.
 Design: templates are functions over schema facts (discovered from the
 profiler), NOT hardcoded Olist values. The dataset config may pin a few
 template parameters (e.g. specific order IDs for per-order lookups) via
-`extra.authoring` — those live in config, never code.
+`extra.authoring` - those live in config, never code.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ class Candidate:
 
 @dataclass
 class SchemaFacts:
-    """Discoverable facts used by question generators — dataset-agnostic."""
+    """Discoverable facts used by question generators - dataset-agnostic."""
     pk_by_table: dict[str, tuple[str, ...]]
     fk_edges: list[tuple[str, str, str, str]]     # (table, col, ref_table, ref_col)
     columns: dict[str, list[tuple[str, str]]]      # table -> [(col, type)]
@@ -89,7 +89,7 @@ def _quote(v: Any) -> str:
 
 
 def gen_per_order_lookup(facts: SchemaFacts, adapter, cfg, rng) -> Optional[Candidate]:
-    """A lookup about one entity: 'status of order X' — pk equality filter."""
+    """A lookup about one entity: 'status of order X' - pk equality filter."""
     for tname in facts.sample_pks:
         pk = facts.pk_by_table[tname]
         if len(pk) != 1:
@@ -181,7 +181,7 @@ def gen_review_text(facts: SchemaFacts, adapter, cfg, rng) -> Optional[Candidate
             continue
         if not fks:
             # single-table datasets (no FK graph): category aggregate over
-            # text-matching rows of the same table — still a review-text question
+            # text-matching rows of the same table - still a review-text question
             keywords = cfg.extra.get("authoring", {}).get("review_keywords") or [
                 "broken", "late", "good", "never arrived",
             ]
@@ -219,7 +219,7 @@ def gen_review_text(facts: SchemaFacts, adapter, cfg, rng) -> Optional[Candidate
 
 
 def _safe_keyword(kw: str) -> str:
-    """Keywords are inlined into LIKE patterns — strip quote wildcards."""
+    """Keywords are inlined into LIKE patterns - strip quote wildcards."""
     return str(kw).replace("'", "").replace("%", "").replace("_", "")
 
 

@@ -1,4 +1,4 @@
-"""Abstract database adapter — the seam that keeps the harness dataset-agnostic."""
+"""Abstract database adapter - the seam that keeps the harness dataset-agnostic."""
 
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ class DatabaseAdapter(ABC):
 
     @abstractmethod
     def add_foreign_key(self, table: str, column: str, ref_table: str, ref_column: str) -> None:
-        """May no-op if orphans exist — implementations report but do not fail."""
+        """May no-op if orphans exist - implementations report but do not fail."""
         ...
 
     @abstractmethod

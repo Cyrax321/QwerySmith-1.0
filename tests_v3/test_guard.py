@@ -1,4 +1,4 @@
-"""AST guard tests — the adversarial cases a regex guard would miss."""
+"""AST guard tests - the adversarial cases a regex guard would miss."""
 
 import pytest
 
@@ -24,7 +24,7 @@ UNSAFE = [
     ("TRUNCATE TABLE orders", "root"),
     ("SELECT * INTO evil FROM orders", "INTO"),
     ("WITH x AS (DELETE FROM orders RETURNING *) SELECT * FROM x", "CTE"),
-    # NOTE: pg_sleep(100) passes the AST guard BY DESIGN — it's a latency DoS,
+    # NOTE: pg_sleep(100) passes the AST guard BY DESIGN - it's a latency DoS,
     # handled by the next defense layers (statement_timeout=30s + read-only
     # role + read-only transaction), not by structural mutation checking.
 ]

@@ -1,4 +1,4 @@
-"""Canonicalization tests (plan §6.4) — the false-positive/negative traps."""
+"""Canonicalization tests (plan §6.4) - the false-positive/negative traps."""
 
 from qwery_smith.questions import canonical_rows_hash
 
@@ -7,7 +7,7 @@ EQUIV = [
     ([(1, "a")], ["x", "y"]),
     ([(1, " A ")], ["x", "y"]),           # whitespace collapse
     ([(1, "a  ")], ["x", "y"]),           # trailing space
-    ([("1", "a")], ["x", "y"]),           # sqlite string numerics — NOTE: not coerced; see below
+    ([("1", "a")], ["x", "y"]),           # sqlite string numerics - NOTE: not coerced; see below
 ]
 
 DIFFERENT = [

@@ -45,7 +45,7 @@ def _load(dataset: str, root: Optional[Path] = None) -> DatasetConfig:
 
 def _uri_for_stage(cfg: DatasetConfig, stage: str) -> str:
     """eval/validate run read-only; ingest needs write. SQLite: same file.
-    Postgres: ingest URI may include a rw role — kept simple in v3.0.0."""
+    Postgres: ingest URI may include a rw role - kept simple in v3.0.0."""
     return cfg.datasource.uri
 
 
@@ -93,7 +93,7 @@ def author(
         schema = load_schema(adapter)
         candidates = generate_candidates(adapter, schema, cfg, n=n, seed=seed)
         if not candidates:
-            typer.secho("no candidates generated — check schema/facts", fg=typer.colors.RED)
+            typer.secho("no candidates generated - check schema/facts", fg=typer.colors.RED)
             raise typer.Exit(2)
 
         cutoff_iso = None
@@ -131,7 +131,7 @@ def author(
             typer.echo(f"  window-dependent (=> heldout): {n_heldout}")
             typer.echo(f"  window-independent (=> train_ok): {len(candidates) - n_heldout}")
         typer.echo(
-            "\nNEXT: human review — rewrite questions for natural phrasing, verify gold"
+            "\nNEXT: human review - rewrite questions for natural phrasing, verify gold"
             "\nSQL by eye, then set source='human' per question and move the file to"
             "\nquestions_v1.jsonl. `validate` re-checks everything."
         )
@@ -165,7 +165,7 @@ def profile(
     dataset: str = typer.Argument(...),
     root: Optional[Path] = typer.Option(None),
 ) -> None:
-    """Stage 1b: profile DB — row counts, date ranges, holdout cutoff (plan §3.1/§4.2)."""
+    """Stage 1b: profile DB - row counts, date ranges, holdout cutoff (plan §3.1/§4.2)."""
     cfg = _load(dataset, root)
     from .adapters import open_adapter
     from .profiler import profile_database
@@ -183,7 +183,7 @@ def profile(
             h = prof.holdout
             typer.echo(f"  holdout column: {h['column']}")
             typer.echo(f"  data max:      {h['data_max']}")
-            typer.echo(f"  CUTOFF:        {h['cutoff']}  (frozen — record in manifest)")
+            typer.echo(f"  CUTOFF:        {h['cutoff']}  (frozen - record in manifest)")
     finally:
         adapter.close()
 
@@ -193,7 +193,7 @@ def validate(
     dataset: str = typer.Argument(...),
     root: Optional[Path] = typer.Option(None),
 ) -> None:
-    """Stage 2: validate question set — scorable denominator + leak checks (plan §3.2)."""
+    """Stage 2: validate question set - scorable denominator + leak checks (plan §3.2)."""
     cfg = _load(dataset, root)
     from .adapters import open_adapter
     from .questions import QuestionSet
@@ -205,9 +205,9 @@ def validate(
         res = validate_question_set(qs, adapter, holdout=cfg.holdout)
         typer.echo(res.summary())
         if res.ok:
-            typer.secho(f"OK — {res.scorable} scorable questions", fg=typer.colors.GREEN)
+            typer.secho(f"OK - {res.scorable} scorable questions", fg=typer.colors.GREEN)
             # write the versioned manifest (plan §3.2): seed, counts, licence,
-            # db_fingerprint, frozen holdout cutoff — the question-set's identity card
+            # db_fingerprint, frozen holdout cutoff - the question-set's identity card
             from .profiler import compute_holdout_cutoff
             from .questions import write_manifest
             from .schema_loader import load_schema
@@ -233,7 +233,7 @@ def validate(
             )
             typer.secho(f"manifest written: {manifest_path}", fg=typer.colors.GREEN)
         else:
-            typer.secho(f"FAILED — {len(res.excluded)} blocking issues", fg=typer.colors.RED)
+            typer.secho(f"FAILED - {len(res.excluded)} blocking issues", fg=typer.colors.RED)
             raise typer.Exit(1)
     finally:
         adapter.close()
@@ -379,7 +379,7 @@ def train(
         typer.echo("\nOn the T4 (Colab), run either:")
         typer.echo(f"  python -m qwery_smith train {cfg.name} --seeds {seeds} --execute")
         typer.echo(f"  python -m qwery_smith.training --config <cfg> --triples {tpath} --out {run['run_dir']}/adapters")
-        typer.echo("(this machine has no CUDA — preparation only)")
+        typer.echo("(this machine has no CUDA - preparation only)")
         return
 
     # --execute: the GPU path (Colab)
@@ -416,7 +416,7 @@ def eval(
     ),
     tag: Optional[str] = typer.Option(None, help="label appended to the run dir name"),
 ) -> None:
-    """Stage 5: run eval matrix — identical questions + identical packs (plan §3.4)."""
+    """Stage 5: run eval matrix - identical questions + identical packs (plan §3.4)."""
     cfg = _load(dataset, root)
     import json
     from datetime import datetime
@@ -656,7 +656,7 @@ def publish(
         return
 
     if not os.environ.get("HF_TOKEN"):
-        typer.secho("HF_TOKEN not set — export it (huggingface.co/settings/tokens, write access)", fg=typer.colors.RED)
+        typer.secho("HF_TOKEN not set - export it (huggingface.co/settings/tokens, write access)", fg=typer.colors.RED)
         raise typer.Exit(2)
 
     from .publish import publish_all

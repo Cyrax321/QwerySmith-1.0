@@ -1,4 +1,4 @@
-"""Clamped-shadow tests (§4.4) — mechanical window-dependence detection.
+"""Clamped-shadow tests (§4.4) - mechanical window-dependence detection.
 
 The adversarial cases here are exactly the ones predicate injection could
 NOT judge correctly: subqueries, NOT EXISTS, aggregates whose results shift
@@ -40,7 +40,7 @@ def test_explicit_pre_cutoff_query_is_window_independent(toy_db):
 
 
 def test_subquery_dependency_detected(toy_db):
-    # orders whose price exceeds the MAX of all shipped orders — the max
+    # orders whose price exceeds the MAX of all shipped orders - the max
     # itself moves when the window is removed (o11/o12 are post-cutoff)
     sql = (
         "SELECT o.order_id FROM orders o "
@@ -56,7 +56,7 @@ def test_subquery_dependency_detected(toy_db):
 
 
 def test_not_exists_dependency(toy_db):
-    # orders with NO items — removing window orders changes the complement
+    # orders with NO items - removing window orders changes the complement
     sql = (
         "SELECT o.order_id FROM orders o "
         "WHERE NOT EXISTS (SELECT 1 FROM order_items i WHERE i.order_id = o.order_id)"

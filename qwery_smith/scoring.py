@@ -1,6 +1,6 @@
 """Scoring semantics (plan §6): EX, error taxonomy, McNemar, consistency.
 
-Every system — base, fine-tuned, 30B, frontier — goes through the SAME
+Every system - base, fine-tuned, 30B, frontier - goes through the SAME
 evaluate_one() path with the SAME frozen pack. No system-specific code.
 """
 

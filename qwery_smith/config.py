@@ -1,4 +1,4 @@
-"""Dataset configuration — the ONLY place dataset specifics may live (plan §3)."""
+"""Dataset configuration - the ONLY place dataset specifics may live (plan §3)."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ class DatasourceConfig:
     """Raw-files -> database mapping (plan §4.1)."""
 
     csv_dir: Path
-    csv_pattern: str                 # e.g. "olist_*.csv" (sqlite) — paired with table_map
+    csv_pattern: str                 # e.g. "olist_*.csv" (sqlite) - paired with table_map
     table_map: dict[str, str]       # csv filename stem -> table name
     uri: str                         # SQLAlchemy URI to the prepared database
     dialect: str                     # "postgres" | "sqlite"

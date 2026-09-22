@@ -1,7 +1,7 @@
 """Schema loader (plan §3.1): introspection -> canonical DDL + FK graph.
 
 Deterministic output (sorted tables, stable column order) so the DDL text is
-SHA-256 hashable — the schema shown to the model is a versioned artifact.
+SHA-256 hashable - the schema shown to the model is a versioned artifact.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ class Schema:
     fk_edges: tuple[FKEdge, ...] = ()
 
     def ddl_text(self) -> str:
-        """The exact text shown to the model (plan §3.1) — deterministic."""
+        """The exact text shown to the model (plan §3.1) - deterministic."""
         blocks: list[str] = []
         for tname in sorted(self.tables):
             t = self.tables[tname]

@@ -77,7 +77,7 @@ datasource:
         encoding="utf-8",
     )
 
-    # fake systems via script driver — pure config, proves driver pluggability
+    # fake systems via script driver - pure config, proves driver pluggability
     script = tmp_path / "fake_system.sh"
     script.write_text('#!/bin/bash\ncat\n', encoding="utf-8")  # placeholder; replaced below
     (ds / "systems.yaml").write_text(

@@ -1,4 +1,4 @@
-# Olist Brazilian E-Commerce — dataset config (the ONLY place Olist specifics live)
+# Olist Brazilian E-Commerce - dataset config (the ONLY place Olist specifics live)
 name: olist
 version: 1.0.0
 license: "CC BY-NC-SA 4.0 (Olist, via Kaggle)"
@@ -29,7 +29,7 @@ datasource:
     product_category_name_translation: product_category_translation
 
   extra:
-    # Explicit column types — never inferred (plan §4.1)
+    # Explicit column types - never inferred (plan §4.1)
     columns:
       customers:
         customer_id: TEXT
