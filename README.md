@@ -223,6 +223,18 @@ tests_v3/           unit + integration + reusability proof
 notebooks/          T4/Colab training cells (pinned-config execution)
 ```
 
+## Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `no config found at datasets/<name>/config.yaml` | run from repo root, or pass `--root` |
+| validate fails on `expected_rows_drift` for every question | DB was rebuilt but questions hold old hashes — regenerate (`author --force`) or re-fix hashes from the current DB |
+| `--execute requires CUDA` | you're on CPU; `train` without `--execute` prepares configs, Colab trains |
+| Colab cell dies in unsloth install | version drift — pin per the notebook comment, or `%pip install -q unsloth` alone then restart runtime |
+| vLLM server never healthy | check `/content/vllm_*.log` tail printed by the cell; most common: VRAM (30B needs the 8B server stopped first) |
+| pack integrity failure at eval | packs were rebuilt with a different index — delete `prepared/packs/` and re-run `retrieve` for ALL systems (identical-retrieval rule) |
+| publish: 401 | HF token lacks `repo.write`, or wasn't set as `HF_TOKEN` |
+
 ## Provenance
 
 Fine-tune recipe and evaluation discipline follow the lessons of the
