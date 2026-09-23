@@ -39,7 +39,8 @@ class ScoredResult:
     reason: str                        # one-line reason (failure folders)
     pred_sql: Optional[str] = None
     pred_answer: Optional[str] = None
-    latency_ms: float = 0.0
+    latency_ms: float = 0.0            # model call latency (end to end)
+    db_exec_ms: Optional[float] = None  # SQL execution latency, when executed
     pred_hash: Optional[str] = None
 
     def to_json(self) -> dict[str, Any]:
@@ -86,7 +87,7 @@ def evaluate_one(
                              pred_sql=sql, pred_answer=answer, latency_ms=latency_ms)
 
     try:
-        rows, cols, lat = adapter.safe_execute(sql, timeout_sec=timeout_sec)
+        rows, cols, db_lat = adapter.safe_execute(sql, timeout_sec=timeout_sec)
     except Exception as e:
         name = type(e).__name__
         if "Timeout" in name:
@@ -108,10 +109,11 @@ def evaluate_one(
             cls = "wrong_result_mismatched_rows"
         return ScoredResult(q.id, False, cls,
                             f"returned {n} rows, gold {q.expected_rows.n_rows}; hash differs",
-                            pred_sql=sql, pred_answer=answer, latency_ms=lat,
-                            pred_hash=sha)
+                            pred_sql=sql, pred_answer=answer, latency_ms=latency_ms,
+                            db_exec_ms=db_lat, pred_hash=sha)
     return ScoredResult(q.id, True, None, "correct",
-                        pred_sql=sql, pred_answer=answer, latency_ms=lat, pred_hash=sha)
+                        pred_sql=sql, pred_answer=answer, latency_ms=latency_ms,
+                        db_exec_ms=db_lat, pred_hash=sha)
 
 
 # ------------------------------------------------------------- mcnemar -----

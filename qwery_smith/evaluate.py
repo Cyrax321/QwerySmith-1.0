@@ -85,10 +85,9 @@ def run_system(
     """
     run = SystemRun(spec=spec)
 
-    for q in questions:
+    for q_index, q in enumerate(questions):
         pack = packs[q.id]
         prompt = render_prompt(schema_ddl, q.question, pack.render_evidence())
-        q_index = questions.index(q)
         n_runs = getattr(spec, "n_consistency_runs", 5)
         seeds = consistency_seeds or [1000 + q_index * 10 + k for k in range(n_runs)]
         headline_seed = seeds[0] - 1  # distinct from every consistency seed

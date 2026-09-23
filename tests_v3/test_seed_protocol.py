@@ -145,7 +145,8 @@ datasource:
         cfg = yaml.safe_load(cfg_path.read_text())
         assert cfg["seed"] == seed
         assert cfg["lora"] == {"r": 16, "alpha": 32, "dropout": 0.05,
-                               "target_modules": "all-linear"}
+                               "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj",
+                                                  "gate_proj", "up_proj", "down_proj"]}
         assert cfg["decoding"]["temperature"] == 0.7     # pinned, not improvised
     manifest = json.loads((run_dir / "manifest.json").read_text())
     assert manifest["seeds"] == [1, 2, 3]

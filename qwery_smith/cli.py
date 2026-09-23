@@ -533,6 +533,13 @@ def report(
         typer.secho(f"no summaries in {run_dir}", fg=typer.colors.RED)
         raise typer.Exit(2)
 
+    # the seed-loop protocol re-runs baseline/reference/onprem in every pass;
+    # keep only the LATEST pass per (system, role) or the table shows dupes
+    dedup: dict[tuple, dict] = {}
+    for s in summaries:
+        dedup[(s.get("system"), s.get("role"))] = s
+    summaries = list(dedup.values())
+
     headline: dict[str, list[ScoredResult]] = {}
     for hp in headline_paths:
         if not hp.exists():
@@ -621,10 +628,16 @@ def publish(
         prof = yaml.safe_load(profile.read_text())
         cutoff = (prof.get("holdout") or {}).get("cutoff")
 
-    # report to embed
+    # report to embed: parent-mode (`report --run runs/<name>`) writes the
+    # merged report at the run root; child dirs hold per-pass reports
     report_md = report_path
     if report_md is None:
-        latest = sorted((base / "runs" / cfg.name).glob("*/report.md"))
+        run_root = base / "runs" / cfg.name
+        cands = list(run_root.glob("*/report.md"))
+        parent = run_root / "report.md"
+        if parent.exists():
+            cands.append(parent)
+        latest = sorted(cands, key=lambda p: p.stat().st_mtime)
         report_md = latest[-1] if latest else None
 
     from .publish import build_model_card

@@ -9,6 +9,7 @@ row 1 and row 2 of the matrix is the adapter produced here.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -88,7 +89,7 @@ def prepare_training_run(
 
     seed_configs = []
     for seed in seeds:
-        cfg_text = qlora_config_yaml(cfg, seed, epochs=epochs, lr=lr)
+        cfg_text = qlora_config_yaml(cfg, seed, optim={"epochs": epochs, "lr": lr})
         cfg_path = run_dir / f"qlora_seed{seed}.yaml"
         cfg_path.write_text(cfg_text, encoding="utf-8")
         seed_configs.append({"seed": seed, "config": str(cfg_path)})
@@ -268,17 +269,25 @@ def train_from_config(config_path: Path, triples_path: Path, adapter_out: Path) 
     tokenizer.save_pretrained(str(adapter_path))
 
     # run record: hardware + adapter hashes + train loss (plan §8.3)
+    def _finite(v: Any) -> Any:
+        # json.dumps serializes NaN as bare 'NaN' (invalid strict JSON)
+        try:
+            return float(v) if math.isfinite(float(v)) else None
+        except (TypeError, ValueError):
+            return None
+
     record = {
         "seed": seed,
         "config": str(config_path),
         "n_triples": len(instances),
-        "n_overflow_dropped": overflow,
+        "n_overflow_flagged": overflow,   # flagged only, never dropped
         "hardware": _hardware_manifest(),
         "adapter_sha256": _sha256_tree(adapter_path),
-        "final_loss": float(trainer.state.log_history[-1].get("train_loss", "nan"))
+        "final_loss": _finite(trainer.state.log_history[-1].get("train_loss"))
         if trainer.state.log_history else None,
         "log_history": [
-            {k: v for k, v in entry.items() if k in ("loss", "epoch", "step", "learning_rate")}
+            {k: _finite(v) if k in ("loss", "learning_rate") else v
+             for k, v in entry.items() if k in ("loss", "epoch", "step", "learning_rate")}
             for entry in trainer.state.log_history
         ],
         "finished_at": datetime.now().isoformat(timespec="seconds"),

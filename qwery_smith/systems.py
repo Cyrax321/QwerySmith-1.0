@@ -60,7 +60,7 @@ def openai_compatible_call(
     import urllib.request
 
     dec = {
-        "temperature": 0.7, "top_p": 0.8, "top_k": 20,
+        "temperature": 0.7, "top_p": 0.8,
         "max_tokens": 1024,
     }
     if decoding:

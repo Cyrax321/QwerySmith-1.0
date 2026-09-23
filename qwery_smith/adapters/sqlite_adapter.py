@@ -23,6 +23,13 @@ _TYPE_MAP = {
 }
 
 
+class StatementTimeout(HarnessError):
+    """sqlite statement exceeded the wall-clock budget (progress-handler abort).
+
+    Name must contain 'Timeout': scoring maps on the exception type name.
+    """
+
+
 class SQLiteAdapter(DatabaseAdapter):
     dialect = "sqlite"
 
@@ -43,12 +50,21 @@ class SQLiteAdapter(DatabaseAdapter):
     def _apply_timeout(self, timeout_sec: float) -> None:
         busy = max(int(timeout_sec * 1000), 100)
         self.conn.execute("PRAGMA busy_timeout = %d" % busy)
-        # sqlite has no hard statement timeout; enforced by caller-side watch in execute()
 
     # -- required interface ------------------------------------------------
     def execute(self, sql: str, timeout_sec: float = 30.0, max_rows: int = 10_000) -> tuple[list, list, float]:
+        self._apply_timeout(timeout_sec)
         cur = self.conn.cursor()
         t0 = time.perf_counter()
+        deadline = t0 + timeout_sec
+
+        def _abort() -> int:
+            # sqlite has no hard statement timeout; the progress handler fires
+            # every N virtual-machine steps, so a runaway cartesian join is
+            # stopped here instead of hanging the eval forever
+            return 1 if time.perf_counter() > deadline else 0
+
+        self.conn.set_progress_handler(_abort, 10_000)
         try:
             cur.execute(sql)
             rows = cur.fetchmany(max_rows)
@@ -57,7 +73,12 @@ class SQLiteAdapter(DatabaseAdapter):
             latency = (time.perf_counter() - t0) * 1000
             cols = [d[0] for d in cur.description] if cur.description else []
             return rows, cols, latency
+        except sqlite3.OperationalError as e:
+            if "interrupted" in str(e):
+                raise StatementTimeout(f"query exceeded {timeout_sec}s") from e
+            raise
         finally:
+            self.conn.set_progress_handler(None, 0)
             cur.close()
 
     def load_csv(self, table: str, csv_path: Path, columns: dict[str, str], append: bool = False) -> int:

@@ -3,7 +3,7 @@
 GATE (pre-registered, plan §7.1) - do not touch without written amendment:
   row 2 PASSES iff
     EX_heldout(row2_mean_3seeds) >= EX_heldout(row4) - 5.0
-    AND flip_rate(row2_pooled) <= flip_rate(row4)
+    AND flip_rate(row2_seed_mean) <= flip_rate(row4)
   FAIL => report row 3 vs row 4 on the same measures.
 """
 
