@@ -337,7 +337,9 @@ def publish_seed(spec: PublishSpec, seed: int, is_canonical: bool = False) -> di
         repo_id = f"{spec.hf_user}/{spec.model_prefix}"
 
     # staging dir
-    stage = Path(spec.adapter_dir).parent / f"_hf_stage_seed{seed}" + ("" if not is_canonical else "_canonical")
+    stage = Path(spec.adapter_dir).parent / (
+        f"_hf_stage_seed{seed}" + ("_canonical" if is_canonical else "")
+    )
     if stage.exists():
         shutil.rmtree(stage)
     stage.mkdir(parents=True)
