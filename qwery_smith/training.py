@@ -22,7 +22,11 @@ from .exceptions import HarnessError
 QLORA_DEFAULTS = {
     "base_model": "Qwen/Qwen3-8B",
     "load_in_4bit": True,          # NF4 + double quantization
-    "lora": {"r": 16, "alpha": 32, "dropout": 0.05, "target_modules": "all-linear"},
+    # explicit module list: unsloth's get_peft_model does not accept peft's
+    # "all-linear" string (it iterates the chars and PEFT explodes)
+    "lora": {"r": 16, "alpha": 32, "dropout": 0.05,
+             "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj",
+                                "gate_proj", "up_proj", "down_proj"]},
     "optim": {"lr": 1.0e-4, "schedule": "cosine", "warmup_ratio": 0.03, "epochs": 3},
     "batch": {"per_device": 1, "grad_accum": 16, "max_len": 4096},
     "packing": True,
