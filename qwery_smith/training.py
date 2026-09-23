@@ -286,6 +286,16 @@ def train_from_config(config_path: Path, triples_path: Path, adapter_out: Path) 
     (adapter_path / "train_record.json").write_text(
         json.dumps(record, indent=2), encoding="utf-8"
     )
+
+    # free VRAM: next seed's from_pretrained must see an empty GPU or
+    # transformers spills modules to CPU and bnb 4-bit refuses to load
+    import gc
+
+    del trainer, ds, model, tokenizer
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats()
+
     return adapter_path
 
 
